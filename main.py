@@ -4,7 +4,6 @@ import logging
 import tempfile
 import time
 import aiofiles
-from datetime import datetime
 from dotenv import load_dotenv
 
 # Cargar variables de entorno PRIMERO
@@ -62,7 +61,6 @@ class VideoCompressorBot:
         self.bot_token = os.getenv('BOT_TOKEN')
         self.client = None
         self.max_size = 2000 * 1024 * 1024  # 2GB máximo
-        self.download_speeds = {}
         
     async def initialize(self):
         """Inicializar el cliente de Telethon"""
@@ -71,7 +69,7 @@ class VideoCompressorBot:
         logger.info("✅ Bot iniciado correctamente con 2 CPU + 4GB RAM")
         
     async def download_file_with_progress(self, message):
-        """Descargar archivo con progreso en tiempo real y velocidad"""
+        """Descargar archivo con progreso en tiempo real"""
         try:
             temp_dir = tempfile.gettempdir()
             file_name = f"input_{message.id}_{int(time.time())}.mp4"
@@ -81,7 +79,6 @@ class VideoCompressorBot:
             start_time = time.time()
             last_update = start_time
             downloaded = 0
-            last_downloaded = 0
             
             # Mensaje inicial de progreso
             progress_msg = await message.reply(
@@ -94,19 +91,17 @@ class VideoCompressorBot:
             
             # Callback para progreso
             def progress_callback(current, total):
-                nonlocal downloaded, last_downloaded, last_update
+                nonlocal downloaded, last_update
                 downloaded = current
                 current_time = time.time()
                 time_diff = current_time - last_update
                 
                 # Actualizar cada 2 segundos o 5% de progreso
-                if time_diff >= 2 or (current / total * 100) - (last_downloaded / total * 100) >= 5:
+                if time_diff >= 2 or (current / total * 100) - (downloaded / total * 100) >= 5:
                     asyncio.create_task(self.update_download_progress(
-                        progress_msg, current, total, start_time, current_time,
-                        current - last_downloaded, time_diff
+                        progress_msg, current, total, start_time, current_time
                     ))
                     last_update = current_time
-                    last_downloaded = current
             
             # Descargar con progreso
             await message.download_media(
@@ -129,12 +124,12 @@ class VideoCompressorBot:
             await message.reply("❌ Error al descargar el video")
             return None
     
-    async def update_download_progress(self, progress_msg, current, total, start_time, current_time, chunk_size, time_diff):
+    async def update_download_progress(self, progress_msg, current, total, start_time, current_time):
         """Actualizar mensaje de progreso de descarga"""
         try:
             percent = (current / total) * 100
             elapsed = current_time - start_time
-            speed = chunk_size / time_diff if time_diff > 0 else 0
+            speed = current / elapsed if elapsed > 0 else 0
             
             # Calcular ETA
             if current > 0 and speed > 0:
@@ -175,14 +170,13 @@ class VideoCompressorBot:
                     'ffmpeg',
                     '-i', input_path,
                     '-c:v', 'libx264',
-                    '-crf', '30',           # Compresión balanceada
+                    '-crf', '28',           # Compresión balanceada
                     '-preset', 'veryfast',  # Máxima velocidad
                     '-vf', 'scale=1920:1080:force_original_aspect_ratio=decrease', # Máximo 1080p
                     '-c:a', 'aac',
                     '-b:a', '128k',
                     '-movflags', '+faststart',
                     '-threads', '2',        # USAR 2 CPUs
-                    '-progress', 'pipe:1',  # Progreso en tiempo real
                     '-y',
                     output_path
                 ]
@@ -191,41 +185,51 @@ class VideoCompressorBot:
                     'ffmpeg',
                     '-i', input_path,
                     '-c:v', 'libx264',
-                    '-crf', '26',
+                    '-crf', '24',
                     '-preset', 'medium',
                     '-c:a', 'aac', 
                     '-b:a', '128k',
                     '-movflags', '+faststart',
                     '-threads', '2',        # USAR 2 CPUs
-                    '-progress', 'pipe:1',  # Progreso en tiempo real
                     '-y',
                     output_path
                 ]
             
-            # Ejecutar FFmpeg y capturar progreso
+            # Ejecutar FFmpeg
             process = await asyncio.create_subprocess_exec(
                 *cmd,
                 stdout=asyncio.subprocess.PIPE,
                 stderr=asyncio.subprocess.PIPE
             )
             
-            # Leer progreso en tiempo real
-            last_update = time.time()
-            while True:
-                line = await process.stdout.readline()
-                if not line:
-                    break
-                    
-                line_str = line.decode().strip()
-                if 'out_time=' in line_str:
-                    current_time = time.time()
-                    if current_time - last_update >= 3:  # Actualizar cada 3 segundos
-                        await self.update_compression_progress(
-                            processing_msg, line_str, start_time, input_size
-                        )
-                        last_update = current_time
+            # Monitorear progreso
+            compression_start = time.time()
+            last_progress_update = compression_start
             
-            # Esperar que termine
+            while True:
+                # Verificar si el proceso sigue activo
+                if process.returncode is not None:
+                    break
+                
+                # Actualizar progreso cada 5 segundos
+                current_time = time.time()
+                if current_time - last_progress_update >= 5:
+                    elapsed = current_time - compression_start
+                    # Estimación basada en tiempo (podría mejorarse)
+                    progress_percent = min(90, (elapsed / 180) * 100)  # Máx 3 minutos estimado
+                    
+                    await processing_msg.edit(
+                        "⚙️ **COMPRIMIENDO VIDEO**\n"
+                        f"📊 **Progreso estimado:** {progress_percent:.1f}%\n"
+                        f"⏱️ **Tiempo transcurrido:** {elapsed:.1f}s\n"
+                        f"🔧 **Usando 2 CPUs**\n"
+                        f"⚡ **Modo:** {'TURBO' if input_size > 1000 * 1024 * 1024 else 'BALANCEADO'}"
+                    )
+                    last_progress_update = current_time
+                
+                await asyncio.sleep(1)
+            
+            # Esperar que termine completamente
             stdout, stderr = await process.communicate()
             
             if process.returncode == 0 and os.path.exists(output_path):
@@ -239,7 +243,7 @@ class VideoCompressorBot:
                     f"📁 **Original:** {self.get_file_size(input_size)}\n"
                     f"📁 **Comprimido:** {self.get_file_size(output_size)}\n"
                     f"⏱️ **Tiempo total:** {total_time:.1f}s\n"
-                    f"⚡ **Velocidad:** {self.get_file_size(input_size / total_time)}/s"
+                    f"⚡ **Eficiencia:** {self.get_file_size(input_size / total_time)}/s"
                 )
                 return output_path
             else:
@@ -253,36 +257,6 @@ class VideoCompressorBot:
             await message.reply("❌ Error al comprimir el video")
             return None
     
-    async def update_compression_progress(self, progress_msg, progress_line, start_time, input_size):
-        """Actualizar progreso de compresión"""
-        try:
-            # Parsear línea de progreso de FFmpeg
-            progress_data = {}
-            for part in progress_line.split():
-                if '=' in part:
-                    key, value = part.split('=', 1)
-                    progress_data[key] = value
-            
-            out_time = progress_data.get('out_time', '0')
-            bitrate = progress_data.get('bitrate', '0')
-            speed = progress_data.get('speed', '1x')
-            
-            # Calcular porcentaje aproximado basado en tiempo
-            # Esto es una aproximación - podrías mejorar con duración real
-            elapsed = time.time() - start_time
-            progress_percent = min(95, (elapsed / 300) * 100)  # Máximo 5 minutos estimado
-            
-            await progress_msg.edit(
-                "⚙️ **COMPRIMIENDO VIDEO**\n"
-                f"📊 **Progreso:** {progress_percent:.1f}%\n"
-                f"⚡ **Velocidad FFmpeg:** {speed}\n"
-                f"📹 **Bitrate:** {bitrate}\n"
-                f"⏱️ **Tiempo transcurrido:** {elapsed:.1f}s\n"
-                f"🔧 **Usando 2 CPUs**"
-            )
-        except Exception as e:
-            logger.error(f"Error actualizando progreso compresión: {e}")
-    
     async def upload_file_with_progress(self, message, file_path):
         """Subir archivo con progreso"""
         try:
@@ -292,12 +266,10 @@ class VideoCompressorBot:
             file_name = f"video_comprimido_{message.id}.mp4"
             start_time = time.time()
             last_update = start_time
-            uploaded = 0
             
             # Callback para progreso de subida
             def upload_progress_callback(sent_bytes, total):
-                nonlocal uploaded, last_update
-                uploaded = sent_bytes
+                nonlocal last_update
                 current_time = time.time()
                 
                 if current_time - last_update >= 3:  # Actualizar cada 3 segundos
