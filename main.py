@@ -8,6 +8,15 @@ import aiofiles
 from dotenv import load_dotenv
 import tempfile
 import psutil
+import sys
+
+# Solucionar error de imghdr en Python 3.11+
+if sys.version_info >= (3, 11):
+    import imghdr
+    if not hasattr(imghdr, 'test_jpeg'):
+        imghdr.test_jpeg = lambda s: 'jpeg' if s.startswith(b'\xff\xd8') else None
+    if not hasattr(imghdr, 'test_png'):
+        imghdr.test_png = lambda s: 'png' if s.startswith(b'\x89PNG\r\n\x1a\n') else None
 
 # Cargar variables de entorno
 load_dotenv()
@@ -79,29 +88,28 @@ class VideoCompressorBot:
                 preset = 'slow'
             
             # Ejecutar FFmpeg
-            stream = ffmpeg.input(input_path)
-            stream = ffmpeg.output(
-                stream,
-                output_path,
-                crf=crf,
-                preset=preset,
-                vcodec='libx264',
-                acodec='aac',
-                audio_bitrate='128k',
-                movflags='+faststart',
-                **{'b:v': '0'}  # Bitrate variable
-            )
+            try:
+                (
+                    ffmpeg
+                    .input(input_path)
+                    .output(
+                        output_path,
+                        crf=crf,
+                        preset=preset,
+                        vcodec='libx264',
+                        acodec='aac',
+                        audio_bitrate='128k',
+                        movflags='+faststart'
+                    )
+                    .overwrite_output()
+                    .run(quiet=True)
+                )
+            except ffmpeg.Error as e:
+                logger.error(f"FFmpeg error: {e}")
+                await processing_msg.edit("❌ Error en la compresión con FFmpeg")
+                return None
             
-            # Ejecutar en subprocess
-            process = await asyncio.create_subprocess_exec(
-                *ffmpeg.compile(stream, overwrite_output=True),
-                stdout=asyncio.subprocess.PIPE,
-                stderr=asyncio.subprocess.PIPE
-            )
-            
-            stdout, stderr = await process.communicate()
-            
-            if process.returncode == 0 and os.path.exists(output_path):
+            if os.path.exists(output_path):
                 output_size = os.path.getsize(output_path)
                 compression_ratio = (1 - output_size / input_size) * 100
                 
@@ -113,7 +121,7 @@ class VideoCompressorBot:
                 )
                 return output_path
             else:
-                await processing_msg.edit("❌ Error en la compresión")
+                await processing_msg.edit("❌ Error en la compresión - archivo no generado")
                 return None
                 
         except Exception as e:
@@ -137,7 +145,7 @@ class VideoCompressorBot:
                        f"✅ Listo para compartir",
                 attributes=[
                     DocumentAttributeVideo(
-                        duration=0,  # Se detecta automáticamente
+                        duration=0,
                         w=0,
                         h=0,
                         round_message=False,
