@@ -1,22 +1,47 @@
 import os
 import asyncio
 import logging
+import tempfile
+import subprocess
+import sys
+from dotenv import load_dotenv
+
+# Solución para imghdr en Python 3.11+
+try:
+    import imghdr
+except ImportError:
+    import types
+    imghdr = types.ModuleType('imghdr')
+    
+    def test_jpeg(h):
+        return 'jpeg' if h.startswith(b'\xff\xd8') else None
+    
+    def test_png(h):
+        return 'png' if h.startswith(b'\x89PNG\r\n\x1a\n') else None
+    
+    def test_gif(h):
+        return 'gif' if h.startswith(b'GIF8') else None
+    
+    imghdr.test_jpeg = test_jpeg
+    imghdr.test_png = test_png
+    imghdr.test_gif = test_gif
+    
+    def what(file, h=None):
+        if h is None:
+            with open(file, 'rb') as f:
+                h = f.read(32)
+        for test in [test_jpeg, test_png, test_gif]:
+            result = test(h)
+            if result:
+                return result
+        return None
+    
+    imghdr.what = what
+    sys.modules['imghdr'] = imghdr
+
+# Ahora importamos telethon
 from telethon import TelegramClient, events
 from telethon.tl.types import DocumentAttributeVideo, DocumentAttributeFilename
-import ffmpeg
-import aiofiles
-from dotenv import load_dotenv
-import tempfile
-import psutil
-import sys
-
-# Solucionar error de imghdr en Python 3.11+
-if sys.version_info >= (3, 11):
-    import imghdr
-    if not hasattr(imghdr, 'test_jpeg'):
-        imghdr.test_jpeg = lambda s: 'jpeg' if s.startswith(b'\xff\xd8') else None
-    if not hasattr(imghdr, 'test_png'):
-        imghdr.test_png = lambda s: 'png' if s.startswith(b'\x89PNG\r\n\x1a\n') else None
 
 # Cargar variables de entorno
 load_dotenv()
@@ -40,23 +65,19 @@ class VideoCompressorBot:
         """Inicializar el cliente de Telethon"""
         self.client = TelegramClient('bot_session', self.api_id, self.api_hash)
         await self.client.start(bot_token=self.bot_token)
-        logger.info("Bot iniciado correctamente")
+        logger.info("✅ Bot iniciado correctamente")
         
     async def download_file(self, message):
         """Descargar archivo grande sin límite de 50MB"""
         try:
-            # Crear directorio temporal
             temp_dir = tempfile.gettempdir()
             file_name = f"input_{message.id}.mp4"
             file_path = os.path.join(temp_dir, file_name)
             
-            # Descargar con progreso
             download_msg = await message.reply("📥 Descargando video...")
-            
-            # Descargar archivo
             await message.download_media(file=file_path)
-            
             await download_msg.edit("✅ Descarga completada")
+            
             return file_path
             
         except Exception as e:
@@ -65,51 +86,51 @@ class VideoCompressorBot:
             return None
     
     async def compress_video(self, input_path, message):
-        """Comprimir video manteniendo calidad"""
+        """Comprimir video usando FFmpeg directamente"""
         try:
             processing_msg = await message.reply("⚙️ Comprimiendo video...")
             
-            # Crear path de salida
             temp_dir = tempfile.gettempdir()
-            output_path = os.path.join(temp_dir, f"compressed_{os.path.basename(input_path)}")
+            output_path = os.path.join(temp_dir, f"compressed_{message.id}.mp4")
             
-            # Configuración de compresión inteligente
+            # Obtener tamaño original
             input_size = os.path.getsize(input_path)
             
-            # Ajustar calidad basado en tamaño original
+            # Configuración de compresión basada en tamaño
             if input_size > 500 * 1024 * 1024:  # >500MB
-                crf = 30  # Más compresión
-                preset = 'fast'
+                crf = "30"
+                preset = "fast"
             elif input_size > 100 * 1024 * 1024:  # >100MB
-                crf = 28
-                preset = 'medium'
+                crf = "28" 
+                preset = "medium"
             else:
-                crf = 26  # Menos compresión para videos pequeños
-                preset = 'slow'
+                crf = "26"
+                preset = "slow"
+            
+            # Comando FFmpeg
+            cmd = [
+                'ffmpeg',
+                '-i', input_path,
+                '-c:v', 'libx264',
+                '-crf', crf,
+                '-preset', preset,
+                '-c:a', 'aac',
+                '-b:a', '128k',
+                '-movflags', '+faststart',
+                '-y',  # Sobrescribir archivo
+                output_path
+            ]
             
             # Ejecutar FFmpeg
-            try:
-                (
-                    ffmpeg
-                    .input(input_path)
-                    .output(
-                        output_path,
-                        crf=crf,
-                        preset=preset,
-                        vcodec='libx264',
-                        acodec='aac',
-                        audio_bitrate='128k',
-                        movflags='+faststart'
-                    )
-                    .overwrite_output()
-                    .run(quiet=True)
-                )
-            except ffmpeg.Error as e:
-                logger.error(f"FFmpeg error: {e}")
-                await processing_msg.edit("❌ Error en la compresión con FFmpeg")
-                return None
+            process = await asyncio.create_subprocess_exec(
+                *cmd,
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.PIPE
+            )
             
-            if os.path.exists(output_path):
+            stdout, stderr = await process.communicate()
+            
+            if process.returncode == 0 and os.path.exists(output_path):
                 output_size = os.path.getsize(output_path)
                 compression_ratio = (1 - output_size / input_size) * 100
                 
@@ -121,7 +142,9 @@ class VideoCompressorBot:
                 )
                 return output_path
             else:
-                await processing_msg.edit("❌ Error en la compresión - archivo no generado")
+                error_msg = stderr.decode() if stderr else "Error desconocido"
+                logger.error(f"FFmpeg error: {error_msg}")
+                await processing_msg.edit("❌ Error en la compresión del video")
                 return None
                 
         except Exception as e:
@@ -129,32 +152,29 @@ class VideoCompressorBot:
             await message.reply("❌ Error al comprimir el video")
             return None
     
-    async def upload_file(self, message, file_path, original_message):
+    async def upload_file(self, message, file_path):
         """Subir archivo comprimido"""
         try:
             upload_msg = await message.reply("📤 Subiendo video comprimido...")
             
-            file_size = os.path.getsize(file_path)
-            file_name = f"compressed_{original_message.id}.mp4"
+            file_name = f"video_comprimido_{message.id}.mp4"
             
             # Subir archivo
             await self.client.send_file(
                 message.chat_id,
                 file_path,
-                caption="🎥 **Video Comprimido**\n"
-                       f"✅ Listo para compartir",
+                caption="🎥 **Video Comprimido**\n✅ Optimizado para compartir",
                 attributes=[
                     DocumentAttributeVideo(
                         duration=0,
-                        w=0,
+                        w=0, 
                         h=0,
                         round_message=False,
                         supports_streaming=True
                     ),
                     DocumentAttributeFilename(file_name=file_name)
                 ],
-                force_document=False,
-                allow_cache=False
+                force_document=False
             )
             
             await upload_msg.delete()
@@ -184,6 +204,7 @@ class VideoCompressorBot:
             try:
                 if file_path and os.path.exists(file_path):
                     os.remove(file_path)
+                    logger.info(f"🗑️ Archivo limpiado: {file_path}")
             except Exception as e:
                 logger.error(f"Error limpiando archivo {file_path}: {e}")
     
@@ -208,6 +229,13 @@ class VideoCompressorBot:
                 )
                 return
             
+            # Información inicial
+            await message.reply(
+                f"🎬 **Video recibido**\n"
+                f"📊 Tamaño: {self.get_file_size(file_size)}\n"
+                f"⚙️ Iniciando compresión..."
+            )
+            
             # Procesar video
             input_path = await self.download_file(message)
             if not input_path:
@@ -219,7 +247,7 @@ class VideoCompressorBot:
                 return
             
             # Subir resultado
-            success = await self.upload_file(message, output_path, message)
+            success = await self.upload_file(message, output_path)
             
             # Limpiar archivos
             self.cleanup_files(input_path, output_path)
@@ -240,31 +268,71 @@ class VideoCompressorBot:
 
 📦 **Características:**
 • ✅ Videos hasta 2GB
-• ✅ Compresión inteligente
-• ✅ Mantiene calidad
+• ✅ Compresión inteligente  
+• ✅ Mantiene calidad aceptable
 • ✅ Sin límites de 50MB
 
 🚀 **Cómo usar:**
 Simplemente envía cualquier video y lo comprimiré automáticamente.
 
-⚡ **Tecnología:**
-Usamos Telethon para superar los límites normales de Telegram
+🔧 **Tecnología:**
+Usamos Telethon + FFmpeg para máxima compatibilidad
         """
         await event.message.reply(start_text)
     
+    async def handle_help(self, event):
+        """Manejador para comando /help"""
+        help_text = """
+📖 **Guía de Uso**
+
+1. **Envía un video** de hasta 2GB
+2. **Espera** mientras lo proceso
+3. **Recibe** el video comprimido
+
+⚡ **Proceso:**
+- 📥 Descarga (sin límites)
+- ⚙️ Compresión optimizada  
+- 📤 Subida del resultado
+
+💡 **Consejos:**
+- Videos más largos toman más tiempo
+- La compresión mantiene calidad visible
+- Archivos muy grandes pueden tomar varios minutos
+        """
+        await event.message.reply(help_text)
+
     async def run(self):
         """Ejecutar el bot"""
         await self.initialize()
         
         # Registrar manejadores
-        self.client.add_event_handler(self.handle_start, events.NewMessage(pattern='/start'))
-        self.client.add_event_handler(self.handle_video, events.NewMessage(func=lambda e: e.message.video or 
-            (e.message.document and e.message.document.mime_type and 'video' in e.message.document.mime_type)))
+        self.client.add_event_handler(
+            self.handle_start, 
+            events.NewMessage(pattern='/start')
+        )
+        self.client.add_event_handler(
+            self.handle_help, 
+            events.NewMessage(pattern='/help')
+        )
+        self.client.add_event_handler(
+            self.handle_video, 
+            events.NewMessage(func=lambda e: e.message.video or 
+                (e.message.document and e.message.document.mime_type and 
+                 'video' in e.message.document.mime_type))
+        )
         
-        logger.info("Bot escuchando mensajes...")
+        logger.info("🤖 Bot escuchando mensajes...")
         await self.client.run_until_disconnected()
 
 async def main():
+    # Verificar variables de entorno
+    required_vars = ['API_ID', 'API_HASH', 'BOT_TOKEN']
+    missing_vars = [var for var in required_vars if not os.getenv(var)]
+    
+    if missing_vars:
+        logger.error(f"❌ Variables faltantes: {missing_vars}")
+        return
+    
     bot = VideoCompressorBot()
     await bot.run()
 
