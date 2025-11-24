@@ -20,6 +20,40 @@ from enum import Enum
 import re
 import json
 
+# ==================== SOLUCIÓN PARA IMGHDR ====================
+try:
+    import imghdr
+except ImportError:
+    import types
+    imghdr = types.ModuleType('imghdr')
+
+    def test_jpeg(h):
+        return 'jpeg' if h.startswith(b'\xff\xd8') else None
+
+    def test_png(h):
+        return 'png' if h.startswith(b'\x89PNG\r\n\x1a\n') else None
+
+    def test_gif(h):
+        return 'gif' if h.startswith(b'GIF8') else None
+
+    imghdr.test_jpeg = test_jpeg
+    imghdr.test_png = test_png
+    imghdr.test_gif = test_gif
+
+    def what(file, h=None):
+        if h is None:
+            with open(file, 'rb') as f:
+                h = f.read(32)
+        for test in [test_jpeg, test_png, test_gif]:
+            result = test(h)
+            if result:
+                return result
+        return None
+
+    imghdr.what = what
+    sys.modules['imghdr'] = imghdr
+# ==================== FIN SOLUCIÓN IMGHDR ====================
+
 # Load environment variables
 from dotenv import load_dotenv
 load_dotenv()
@@ -224,6 +258,10 @@ class ProfessionalVideoCompressor:
         async def cancel_handler(event):
             await self._handle_cancel_command(event)
 
+        @self.client.on(events.NewMessage(pattern='/myid'))
+        async def myid_handler(event):
+            await self._handle_myid_command(event)
+
         @self.client.on(events.NewMessage(
             func=lambda e: e.message.video or (
                 e.message.document and 
@@ -268,6 +306,7 @@ Welcome to the high-performance video compression service.
 /help - Detailed instructions
 /stats - System statistics
 /cancel - Cancel current operation
+/myid - Get your user ID
 
 **How to use:**
 1. Send me a video file
@@ -350,6 +389,11 @@ Send a video to get started.
         """
         await event.reply(stats_text)
 
+    async def _handle_myid_command(self, event):
+        """Handle /myid command - Get user ID"""
+        user_id = event.sender_id
+        await event.reply(f"**Your Telegram ID is:** `{user_id}`")
+
     async def _handle_cancel_command(self, event):
         """Handle /cancel command"""
         user_id = event.sender_id
@@ -405,6 +449,7 @@ Send a video to get started.
                 estimated_size = int(file_size * config.size_ratio)
                 label = f"{config.name} (~{self._format_size(estimated_size)})"
                 callback_data = f"preset:{preset.value}:audio"
+                buttons.append([Button.inline(label, callback_data.encode())])
             else:
                 # Create resolution options for video presets
                 for resolution in config.resolutions:
@@ -414,13 +459,13 @@ Send a video to get started.
                     buttons.append([Button.inline(label, callback_data.encode())])
         
         # Add cancel button
-        buttons.append([Button.inline("Cancel Operation", b"cancel")])
+        buttons.append([Button.inline("❌ Cancel Operation", b"cancel")])
         
         menu_text = f"""
 📹 **Video Compression Options**
 
-Original Size: {self._format_size(file_size)}
-Estimated Processing Time: {self._estimate_processing_time(file_size)}
+**Original Size:** {self._format_size(file_size)}
+**Estimated Processing Time:** {self._estimate_processing_time(file_size)}
 
 Select compression preset and resolution:
         """
@@ -487,8 +532,8 @@ Select compression preset and resolution:
             logger.error(f"Compression job failed: {e}")
             await event.edit(f"Processing failed: {str(e)}")
             self.stats['failed_jobs'] += 1
-        finally:
-            # Cleanup
+            
+            # Cleanup on failure
             if user_id in self.active_jobs:
                 del self.active_jobs[user_id]
             if user_id in self.progress_trackers:
@@ -525,6 +570,12 @@ Select compression preset and resolution:
             job_time = (datetime.now() - self.active_jobs[user_id]['start_time']).total_seconds()
             self.stats['total_compression_time'] += job_time
             
+            await event.edit("✅ **Compression completed successfully!**")
+            
+        except Exception as e:
+            logger.error(f"Pipeline error: {e}")
+            await event.edit(f"❌ **Processing failed:** {str(e)}")
+            raise
         finally:
             # Cleanup temporary files
             await self._cleanup_files([input_path, output_path])
@@ -602,10 +653,10 @@ Select compression preset and resolution:
         preset = self.presets[CompressionPreset(preset_key)]
         
         caption = (
-            f"Compressed Video\n"
-            f"Preset: {preset.name}\n"
-            f"Resolution: {resolution}\n"
-            f"Size: {self._format_size(file_size)}"
+            f"**Compressed Video**\n"
+            f"• Preset: {preset.name}\n"
+            f"• Resolution: {resolution}\n"
+            f"• Size: {self._format_size(file_size)}"
         )
         
         last_update = time.time()
@@ -635,7 +686,7 @@ Select compression preset and resolution:
             ] if preset_key != "audio_only" else [
                 DocumentAttributeAudio(
                     duration=0,
-                    title=f"Extracted Audio"
+                    title=f"Extracted Audio - {preset.name}"
                 )
             ]
         )
@@ -650,25 +701,32 @@ Select compression preset and resolution:
                 
             progress_data.stage = stage
             progress_data.percentage = percentage
-            progress_data.downloaded_bytes = current
-            progress_data.total_bytes = total
+            if current > 0:
+                progress_data.downloaded_bytes = current
+            if total > 0:
+                progress_data.total_bytes = total
             
             # Calculate speed and ETA
             elapsed = (datetime.now() - progress_data.start_time).total_seconds()
-            if elapsed > 0 and current > 0:
-                speed = current / elapsed
+            if elapsed > 0 and progress_data.downloaded_bytes > 0:
+                speed = progress_data.downloaded_bytes / elapsed
                 progress_data.speed = f"{self._format_size(speed)}/s"
                 
-                if total > 0 and percentage > 0:
+                if progress_data.total_bytes > 0 and percentage > 0:
                     remaining = (100 - percentage) * (elapsed / percentage)
                     progress_data.eta = f"{remaining:.1f}s"
             
-            # Update message (limit updates to avoid rate limiting)
-            if int(percentage) % 10 == 0 or percentage >= 100:
-                progress_text = self._format_progress_text(progress_data)
-                
-                # Find and edit the progress message
-                # In a real implementation, you'd track the message ID
+            # Create progress text
+            progress_text = self._format_progress_text(progress_data)
+            
+            # Update message periodically to avoid rate limiting
+            if int(percentage) % 25 == 0 or percentage >= 100:  # Update every 25%
+                try:
+                    # Find the original message and edit it
+                    # This is a simplified version - in production you'd track message IDs
+                    pass
+                except Exception as e:
+                    logger.debug(f"Could not update progress message: {e}")
                 
         except Exception as e:
             logger.debug(f"Progress update error: {e}")
@@ -680,7 +738,7 @@ Select compression preset and resolution:
         bar = '█' * filled + '░' * (bar_length - filled)
         
         return (
-            f"{progress.stage.value}\n"
+            f"**{progress.stage.value}**\n"
             f"Progress: [{bar}] {progress.percentage:.1f}%\n"
             f"Speed: {progress.speed} | ETA: {progress.eta}\n"
             f"Size: {self._format_size(progress.downloaded_bytes)} / {self._format_size(progress.total_bytes)}"
