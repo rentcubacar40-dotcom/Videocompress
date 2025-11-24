@@ -72,7 +72,7 @@ logger = logging.getLogger("VideoCompressor")
 # Import Telethon
 from telethon import TelegramClient, events
 from telethon.tl.custom import Button
-from telethon.tl.types import DocumentAttributeVideo, DocumentAttributeFilename
+from telethon.tl.types import DocumentAttributeVideo, DocumentAttributeFilename, DocumentAttributeAudio
 
 class CompressionPreset(Enum):
     ULTRA_TURBO = "ultra_turbo"
@@ -83,10 +83,10 @@ class CompressionPreset(Enum):
     AUDIO_ONLY = "audio_only"
 
 class ProcessingStage(Enum):
-    DOWNLOADING = "DOWNLOADING"
-    ANALYZING = "ANALYZING"
-    COMPRESSING = "COMPRESSING"
-    UPLOADING = "UPLOADING"
+    DOWNLOADING = "📥 DESCARGANDO"
+    ANALYZING = "🔍 ANALIZANDO"
+    COMPRESSING = "🎬 COMPRIMIENDO"
+    UPLOADING = "📤 SUBIENDO"
 
 @dataclass
 class CompressionConfig:
@@ -133,6 +133,7 @@ class ProfessionalVideoCompressor:
         self.active_jobs: Dict[int, Dict] = {}
         self.user_sessions: Dict[int, Dict] = {}
         self.progress_trackers: Dict[int, ProgressData] = {}
+        self.progress_messages: Dict[int, any] = {}  # Para almacenar mensajes de progreso
         
         # System statistics
         self.stats = {
@@ -155,68 +156,68 @@ class ProfessionalVideoCompressor:
         """Initialize optimized compression presets"""
         return {
             CompressionPreset.ULTRA_TURBO: CompressionConfig(
-                name="ULTRA TURBO",
+                name="🚀 ULTRA TURBO",
                 crf="35",
                 preset="ultrafast",
                 audio_bitrate="64k",
-                description="Maximum compression for quick sharing",
-                quality="Low",
-                speed="Very Fast",
+                description="Compresión máxima - Velocidad extrema",
+                quality="Baja",
+                speed="Máxima",
                 size_ratio=0.07,
                 resolutions=["240p", "360p", "480p"]
             ),
             CompressionPreset.TURBO: CompressionConfig(
-                name="TURBO",
+                name="⚡ TURBO",
                 crf="32",
                 preset="superfast",
                 audio_bitrate="96k",
-                description="High compression with good balance",
-                quality="Medium-Low",
-                speed="Fast",
+                description="Alta compresión - Balance perfecto",
+                quality="Media-Baja",
+                speed="Muy Rápida",
                 size_ratio=0.15,
                 resolutions=["360p", "480p", "720p"]
             ),
             CompressionPreset.BALANCED: CompressionConfig(
-                name="BALANCED",
+                name="⚖️ BALANCEADO",
                 crf="28",
                 preset="fast",
                 audio_bitrate="128k",
-                description="Recommended quality/size balance",
-                quality="Good",
-                speed="Medium",
+                description="Calidad equilibrada - Recomendado",
+                quality="Buena",
+                speed="Rápida",
                 size_ratio=0.25,
                 resolutions=["480p", "720p", "1080p"]
             ),
             CompressionPreset.QUALITY: CompressionConfig(
-                name="QUALITY",
+                name="🎨 CALIDAD",
                 crf="23",
                 preset="medium",
                 audio_bitrate="160k",
-                description="High quality for social media",
-                quality="Very Good",
-                speed="Medium-Slow",
+                description="Alta calidad - Para redes sociales",
+                quality="Muy Buena",
+                speed="Media",
                 size_ratio=0.40,
                 resolutions=["720p", "1080p"]
             ),
             CompressionPreset.MAX_QUALITY: CompressionConfig(
-                name="MAX QUALITY",
+                name="👑 MÁXIMA CALIDAD",
                 crf="18",
                 preset="slow",
                 audio_bitrate="192k",
-                description="Professional quality with minimal compression",
-                quality="Excellent",
-                speed="Slow",
+                description="Calidad profesional - Compresión mínima",
+                quality="Excelente",
+                speed="Lenta",
                 size_ratio=0.60,
                 resolutions=["1080p", "1440p", "2160p"]
             ),
             CompressionPreset.AUDIO_ONLY: CompressionConfig(
-                name="AUDIO ONLY",
+                name="🎵 SOLO AUDIO",
                 crf="N/A",
                 preset="fast",
                 audio_bitrate="128k",
-                description="Extract audio only to MP3",
+                description="Extrae solo audio en formato MP3",
                 quality="Audio",
-                speed="Fast",
+                speed="Rápida",
                 size_ratio=0.03,
                 resolutions=["audio"]
             )
@@ -291,75 +292,74 @@ class ProfessionalVideoCompressor:
     async def _handle_start_command(self, event):
         """Handle /start command"""
         welcome_message = """
-🤖 **Professional Video Compressor**
+🤖 **Compresor de Videos Profesional**
 
-Welcome to the high-performance video compression service.
+Bienvenido al servicio de compresión de videos de alto rendimiento.
 
-**Features:**
-• Multiple compression presets
-• Real-time progress tracking
-• Support for files up to 2GB
-• Optimized for speed and quality
+**Características:**
+• Múltiples presets de compresión
+• Seguimiento de progreso en tiempo real
+• Soporte para archivos hasta 2GB
+• Optimizado para velocidad y calidad
 
-**Commands:**
-/start - Show this message
-/help - Detailed instructions
-/stats - System statistics
-/cancel - Cancel current operation
-/myid - Get your user ID
+**Comandos:**
+/start - Mostrar este mensaje
+/help - Instrucciones detalladas
+/stats - Estadísticas del sistema
+/cancel - Cancelar operación actual
+/myid - Obtener tu ID de usuario
 
-**How to use:**
-1. Send me a video file
-2. Choose compression preset
-3. Monitor real-time progress
-4. Download compressed file
+**Cómo usar:**
+1. Envíame un archivo de video
+2. Elige el preset de compresión
+3. Monitorea el progreso en tiempo real
+4. Descarga el archivo comprimido
 
-Send a video to get started.
+Envía un video para comenzar.
         """
         await event.reply(welcome_message)
 
     async def _handle_help_command(self, event):
         """Handle /help command"""
         help_text = """
-📖 **User Guide - Video Compressor**
+📖 **Guía de Usuario - Compresor de Videos**
 
-**Compression Presets:**
+**Presets de Compresión:**
 
-**ULTRA TURBO**
-- Maximum compression, smallest size
-- Best for quick sharing
-- Quality: Low | Speed: Very Fast
+**🚀 ULTRA TURBO**
+- Compresión máxima, tamaño mínimo
+- Ideal para compartir rápido
+- Calidad: Baja | Velocidad: Máxima
 
-**TURBO**
-- Good compression/quality balance
-- Recommended for most uses
-- Quality: Medium | Speed: Fast
+**⚡ TURBO**
+- Buen balance compresión/calidad
+- Recomendado para la mayoría de usos
+- Calidad: Media | Velocidad: Muy Rápida
 
-**BALANCED**
-- Optimal quality/size ratio
-- Default recommendation
-- Quality: Good | Speed: Medium
+**⚖️ BALANCEADO**
+- Equilibrio perfecto calidad/tamaño
+- Recomendación por defecto
+- Calidad: Buena | Velocidad: Rápida
 
-**QUALITY**
-- High visual quality
-- Suitable for social media
-- Quality: Very Good | Speed: Medium-Slow
+**🎨 CALIDAD**
+- Alta calidad visual
+- Perfecto para redes sociales
+- Calidad: Muy Buena | Velocidad: Media
 
-**MAX QUALITY**
-- Professional quality
-- Minimal compression
-- Quality: Excellent | Speed: Slow
+**👑 MÁXIMA CALIDAD**
+- Calidad profesional
+- Compresión mínima
+- Calidad: Excelente | Velocidad: Lenta
 
-**AUDIO ONLY**
-- Extract audio to MP3
-- Remove video stream
-- Quality: Audio | Speed: Fast
+**🎵 SOLO AUDIO**
+- Extrae solo el audio
+- Formato MP3 de alta calidad
 
-**Technical Notes:**
-- Maximum file size: 2GB
-- Supported formats: MP4, MOV, AVI, MKV
-- Output format: MP4 or MP3
-- Real-time progress updates
+**Notas Técnicas:**
+- Tamaño máximo: 2GB
+- Formatos soportados: MP4, MOV, AVI, MKV
+- Formato de salida: MP4 o MP3
+- Actualizaciones de progreso en tiempo real
         """
         await event.reply(help_text)
 
@@ -369,30 +369,30 @@ Send a video to get started.
         memory = psutil.Process().memory_info().rss / 1024 / 1024
         
         stats_text = f"""
-📊 **System Statistics**
+📊 **Estadísticas del Sistema**
 
-**Performance:**
-• Uptime: {str(uptime).split('.')[0]}
-• Total Jobs: {self.stats['total_jobs']}
-• Successful: {self.stats['successful_jobs']}
-• Failed: {self.stats['failed_jobs']}
-• Active Jobs: {len(self.active_jobs)}
+**Rendimiento:**
+• Tiempo activo: {str(uptime).split('.')[0]}
+• Trabajos totales: {self.stats['total_jobs']}
+• Exitosos: {self.stats['successful_jobs']}
+• Fallidos: {self.stats['failed_jobs']}
+• Trabajos activos: {len(self.active_jobs)}
 
-**System:**
-• Memory Usage: {memory:.1f} MB
-• CPU Usage: {psutil.cpu_percent()}%
-• Disk Usage: {psutil.disk_usage('/').percent}%
+**Sistema:**
+• Uso de memoria: {memory:.1f} MB
+• Uso de CPU: {psutil.cpu_percent()}%
+• Uso de disco: {psutil.disk_usage('/').percent}%
 
-**Configuration:**
-• Max File Size: {self._format_size(self.max_file_size)}
-• Concurrent Jobs: {self.max_concurrent_jobs}
+**Configuración:**
+• Tamaño máximo: {self._format_size(self.max_file_size)}
+• Trabajos concurrentes: {self.max_concurrent_jobs}
         """
         await event.reply(stats_text)
 
     async def _handle_myid_command(self, event):
         """Handle /myid command - Get user ID"""
         user_id = event.sender_id
-        await event.reply(f"**Your Telegram ID is:** `{user_id}`")
+        await event.reply(f"**Tu ID de Telegram es:** `{user_id}`")
 
     async def _handle_cancel_command(self, event):
         """Handle /cancel command"""
@@ -403,9 +403,11 @@ Send a video to get started.
             del self.active_jobs[user_id]
             if user_id in self.progress_trackers:
                 del self.progress_trackers[user_id]
-            await event.reply("Operation cancelled successfully.")
+            if user_id in self.progress_messages:
+                del self.progress_messages[user_id]
+            await event.reply("Operación cancelada exitosamente.")
         else:
-            await event.reply("No active operation to cancel.")
+            await event.reply("No hay operación activa para cancelar.")
 
     async def _handle_video_message(self, event):
         """Handle incoming video files"""
@@ -413,7 +415,7 @@ Send a video to get started.
         
         # Check if user has active job
         if user_id in self.active_jobs:
-            await event.reply("Please wait for your current operation to complete or use /cancel")
+            await event.reply("Por favor espera a que tu operación actual termine o usa /cancel")
             return
 
         message = event.message
@@ -422,8 +424,8 @@ Send a video to get started.
         # Validate file size
         if file_size > self.max_file_size:
             await message.reply(
-                f"File too large: {self._format_size(file_size)}\n"
-                f"Maximum allowed: {self._format_size(self.max_file_size)}"
+                f"Archivo muy grande: {self._format_size(file_size)}\n"
+                f"Máximo permitido: {self._format_size(self.max_file_size)}"
             )
             return
 
@@ -438,71 +440,70 @@ Send a video to get started.
         await self._show_compression_menu(event, file_size)
 
     async def _show_compression_menu(self, event, file_size: int):
-        """Display compression preset selection menu"""
+        """Display compression preset selection menu - CORREGIDO"""
         buttons = []
         
-        # Create preset buttons
+        # Create preset buttons - SOLO UN BOTÓN POR PRESET
         for preset in CompressionPreset:
             config = self.presets[preset]
             
             if preset == CompressionPreset.AUDIO_ONLY:
                 estimated_size = int(file_size * config.size_ratio)
                 label = f"{config.name} (~{self._format_size(estimated_size)})"
-                callback_data = f"preset:{preset.value}:audio"
-                buttons.append([Button.inline(label, callback_data.encode())])
+                callback_data = f"preset:{preset.value}"
             else:
-                # Create resolution options for video presets
-                for resolution in config.resolutions:
-                    estimated_size = int(file_size * config.size_ratio)
-                    label = f"{config.name} {resolution} (~{self._format_size(estimated_size)})"
-                    callback_data = f"preset:{preset.value}:{resolution}"
-                    buttons.append([Button.inline(label, callback_data.encode())])
+                # Para video, mostrar solo el preset principal
+                estimated_size = int(file_size * config.size_ratio)
+                label = f"{config.name} (~{self._format_size(estimated_size)})"
+                callback_data = f"preset:{preset.value}"
+            
+            buttons.append([Button.inline(label, callback_data.encode())])
         
         # Add cancel button
-        buttons.append([Button.inline("❌ Cancel Operation", b"cancel")])
+        buttons.append([Button.inline("❌ Cancelar Operación", b"cancel")])
         
         menu_text = f"""
-📹 **Video Compression Options**
+📹 **Opciones de Compresión de Video**
 
-**Original Size:** {self._format_size(file_size)}
-**Estimated Processing Time:** {self._estimate_processing_time(file_size)}
+**Tamaño Original:** {self._format_size(file_size)}
+**Tiempo Estimado de Procesamiento:** {self._estimate_processing_time(file_size)}
 
-Select compression preset and resolution:
+Selecciona el preset de compresión:
         """
         
         await event.reply(menu_text, buttons=buttons)
 
     async def _handle_callback_query(self, event):
-        """Handle button callbacks"""
+        """Handle button callbacks - CORREGIDO"""
         user_id = event.sender_id
         data = event.data.decode()
         
         try:
+            await event.answer()  # Responde la callback inmediatamente
+            
             if data == "cancel":
                 if user_id in self.active_jobs:
                     del self.active_jobs[user_id]
-                await event.edit("Operation cancelled.")
+                await event.edit("Operación cancelada.")
                 return
                 
             elif data.startswith("preset:"):
-                parts = data.split(":")
-                preset_key = parts[1]
-                resolution = parts[2]
+                preset_key = data.split(":")[1]
                 
                 video_info = self.user_sessions.get(user_id)
                 if not video_info:
-                    await event.answer("Session expired. Please send the video again.", alert=True)
+                    await event.edit("❌ Sesión expirada. Por favor envía el video nuevamente.")
                     return
                 
-                # Start processing
-                await self._start_compression_job(event, video_info, preset_key, resolution)
+                # Start processing immediately
+                await self._start_compression_job(event, video_info, preset_key)
                 
         except Exception as e:
-            logger.error(f"Callback error: {e}")
-            await event.answer("Error processing request", alert=True)
+            logger.error(f"Error en callback: {e}")
+            await event.answer("Error procesando la solicitud", alert=True)
 
-    async def _start_compression_job(self, event, video_info, preset_key: str, resolution: str):
-        """Start video compression job"""
+    async def _start_compression_job(self, event, video_info, preset_key: str):
+        """Start video compression job - CORREGIDO"""
         user_id = event.sender_id
         
         try:
@@ -510,7 +511,7 @@ Select compression preset and resolution:
             self.active_jobs[user_id] = {
                 'start_time': datetime.now(),
                 'preset': preset_key,
-                'resolution': resolution
+                'event_message': event  # Guardar referencia al evento
             }
             
             self.stats['total_jobs'] += 1
@@ -522,15 +523,19 @@ Select compression preset and resolution:
                 downloaded_bytes=0,
                 total_bytes=video_info['file_size'],
                 speed=0,
-                eta="Calculating...",
+                eta="Calculando...",
                 start_time=datetime.now()
             )
             
-            await self._process_video_pipeline(event, video_info, preset_key, resolution)
+            # Crear mensaje de progreso inicial
+            progress_msg = await event.edit("📥 **Iniciando descarga...**")
+            self.progress_messages[user_id] = progress_msg
+            
+            await self._process_video_pipeline(event, video_info, preset_key)
             
         except Exception as e:
-            logger.error(f"Compression job failed: {e}")
-            await event.edit(f"Processing failed: {str(e)}")
+            logger.error(f"Error en trabajo de compresión: {e}")
+            await event.edit(f"❌ **Procesamiento falló:** {str(e)}")
             self.stats['failed_jobs'] += 1
             
             # Cleanup on failure
@@ -538,9 +543,11 @@ Select compression preset and resolution:
                 del self.active_jobs[user_id]
             if user_id in self.progress_trackers:
                 del self.progress_trackers[user_id]
+            if user_id in self.progress_messages:
+                del self.progress_messages[user_id]
 
-    async def _process_video_pipeline(self, event, video_info, preset_key: str, resolution: str):
-        """Complete video processing pipeline"""
+    async def _process_video_pipeline(self, event, video_info, preset_key: str):
+        """Complete video processing pipeline - CORREGIDO"""
         user_id = event.sender_id
         message = video_info['message']
         
@@ -550,35 +557,45 @@ Select compression preset and resolution:
         
         try:
             # Stage 1: Download
-            await self._update_progress(user_id, ProcessingStage.DOWNLOADING, 0)
+            await self._update_progress_message(user_id, "📥 **Descargando video...**\n0%")
             await self._download_video(message, input_path, user_id)
             
             # Stage 2: Analyze
-            await self._update_progress(user_id, ProcessingStage.ANALYZING, 0)
+            await self._update_progress_message(user_id, "🔍 **Analizando video...**")
             video_duration = await self._get_video_duration(input_path)
             
             # Stage 3: Compress
-            await self._update_progress(user_id, ProcessingStage.COMPRESSING, 0)
-            await self._compress_video(input_path, output_path, preset_key, resolution, user_id, video_duration)
+            await self._update_progress_message(user_id, "🎬 **Comprimiendo video...**\n0%")
+            await self._compress_video(input_path, output_path, preset_key, user_id, video_duration)
             
             # Stage 4: Upload
-            await self._update_progress(user_id, ProcessingStage.UPLOADING, 0)
-            await self._upload_result(event, output_path, preset_key, resolution)
+            await self._update_progress_message(user_id, "📤 **Subiendo resultado...**\n0%")
+            await self._upload_result(event, output_path, preset_key)
             
             # Success
             self.stats['successful_jobs'] += 1
             job_time = (datetime.now() - self.active_jobs[user_id]['start_time']).total_seconds()
             self.stats['total_compression_time'] += job_time
             
-            await event.edit("✅ **Compression completed successfully!**")
+            await self._update_progress_message(user_id, "✅ **¡Compresión completada exitosamente!**")
             
         except Exception as e:
-            logger.error(f"Pipeline error: {e}")
-            await event.edit(f"❌ **Processing failed:** {str(e)}")
+            logger.error(f"Error en pipeline: {e}")
+            await self._update_progress_message(user_id, f"❌ **Error en procesamiento:** {str(e)}")
             raise
         finally:
             # Cleanup temporary files
             await self._cleanup_files([input_path, output_path])
+            
+            # Cleanup user state
+            if user_id in self.active_jobs:
+                del self.active_jobs[user_id]
+            if user_id in self.progress_trackers:
+                del self.progress_trackers[user_id]
+            if user_id in self.progress_messages:
+                del self.progress_messages[user_id]
+            if user_id in self.user_sessions:
+                del self.user_sessions[user_id]
 
     async def _download_video(self, message, input_path: str, user_id: int):
         """Download video with progress tracking"""
@@ -586,11 +603,11 @@ Select compression preset and resolution:
         
         def progress_callback(current, total):
             nonlocal last_update
-            if time.time() - last_update > 0.3:  # Update every 300ms
+            if time.time() - last_update > 1.0:  # Update every 1 second
                 percentage = (current / total) * 100
-                asyncio.create_task(self._update_progress(
-                    user_id, ProcessingStage.DOWNLOADING, percentage,
-                    current, total
+                asyncio.create_task(self._update_progress_message(
+                    user_id, 
+                    f"📥 **Descargando video...**\n{percentage:.1f}%"
                 ))
                 last_update = time.time()
         
@@ -600,7 +617,7 @@ Select compression preset and resolution:
         )
 
     async def _compress_video(self, input_path: str, output_path: str, preset_key: str, 
-                            resolution: str, user_id: int, duration: float):
+                            user_id: int, duration: float):
         """Compress video using FFmpeg with real-time progress"""
         preset = self.presets[CompressionPreset(preset_key)]
         
@@ -618,13 +635,9 @@ Select compression preset and resolution:
                 '-preset', preset.preset,
                 '-c:a', 'aac', '-b:a', preset.audio_bitrate,
                 '-movflags', '+faststart',
-                '-progress', 'pipe:1', '-loglevel', 'error'
+                '-progress', 'pipe:1', '-loglevel', 'error',
+                '-y', output_path
             ]
-            
-            if resolution != 'audio':
-                cmd.extend(['-vf', f'scale=-2:{resolution[:-1]}'])
-            
-            cmd.append(output_path)
         
         # Execute with progress tracking
         process = await asyncio.create_subprocess_exec(
@@ -640,34 +653,38 @@ Select compression preset and resolution:
                 current_time = self._parse_time_string(line.split('=')[1])
                 if duration > 0:
                     percentage = (current_time / duration) * 100
-                    await self._update_progress(
-                        user_id, ProcessingStage.COMPRESSING, percentage
+                    await self._update_progress_message(
+                        user_id,
+                        f"🎬 **Comprimiendo video...**\n{percentage:.1f}%"
                     )
         
         await process.wait()
 
-    async def _upload_result(self, event, output_path: str, preset_key: str, resolution: str):
+    async def _upload_result(self, event, output_path: str, preset_key: str):
         """Upload compressed file with progress"""
         user_id = event.sender_id
+        
+        if not os.path.exists(output_path):
+            raise FileNotFoundError("Archivo comprimido no encontrado")
+            
         file_size = os.path.getsize(output_path)
         preset = self.presets[CompressionPreset(preset_key)]
         
         caption = (
-            f"**Compressed Video**\n"
+            f"**Video Comprimido**\n"
             f"• Preset: {preset.name}\n"
-            f"• Resolution: {resolution}\n"
-            f"• Size: {self._format_size(file_size)}"
+            f"• Tamaño: {self._format_size(file_size)}"
         )
         
         last_update = time.time()
         
         def upload_progress_callback(current, total):
             nonlocal last_update
-            if time.time() - last_update > 0.3:
+            if time.time() - last_update > 1.0:
                 percentage = (current / total) * 100
-                asyncio.create_task(self._update_progress(
-                    user_id, ProcessingStage.UPLOADING, percentage,
-                    current, total
+                asyncio.create_task(self._update_progress_message(
+                    user_id,
+                    f"📤 **Subiendo resultado...**\n{percentage:.1f}%"
                 ))
                 last_update = time.time()
         
@@ -686,63 +703,18 @@ Select compression preset and resolution:
             ] if preset_key != "audio_only" else [
                 DocumentAttributeAudio(
                     duration=0,
-                    title=f"Extracted Audio - {preset.name}"
+                    title=f"Audio Extraído - {preset.name}"
                 )
             ]
         )
 
-    async def _update_progress(self, user_id: int, stage: ProcessingStage, percentage: int,
-                             current: int = 0, total: int = 0):
-        """Update progress display"""
+    async def _update_progress_message(self, user_id: int, message: str):
+        """Update progress message efficiently"""
         try:
-            progress_data = self.progress_trackers.get(user_id)
-            if not progress_data:
-                return
-                
-            progress_data.stage = stage
-            progress_data.percentage = percentage
-            if current > 0:
-                progress_data.downloaded_bytes = current
-            if total > 0:
-                progress_data.total_bytes = total
-            
-            # Calculate speed and ETA
-            elapsed = (datetime.now() - progress_data.start_time).total_seconds()
-            if elapsed > 0 and progress_data.downloaded_bytes > 0:
-                speed = progress_data.downloaded_bytes / elapsed
-                progress_data.speed = f"{self._format_size(speed)}/s"
-                
-                if progress_data.total_bytes > 0 and percentage > 0:
-                    remaining = (100 - percentage) * (elapsed / percentage)
-                    progress_data.eta = f"{remaining:.1f}s"
-            
-            # Create progress text
-            progress_text = self._format_progress_text(progress_data)
-            
-            # Update message periodically to avoid rate limiting
-            if int(percentage) % 25 == 0 or percentage >= 100:  # Update every 25%
-                try:
-                    # Find the original message and edit it
-                    # This is a simplified version - in production you'd track message IDs
-                    pass
-                except Exception as e:
-                    logger.debug(f"Could not update progress message: {e}")
-                
+            if user_id in self.progress_messages:
+                await self.progress_messages[user_id].edit(message)
         except Exception as e:
-            logger.debug(f"Progress update error: {e}")
-
-    def _format_progress_text(self, progress: ProgressData) -> str:
-        """Format progress display text"""
-        bar_length = 20
-        filled = int(bar_length * progress.percentage / 100)
-        bar = '█' * filled + '░' * (bar_length - filled)
-        
-        return (
-            f"**{progress.stage.value}**\n"
-            f"Progress: [{bar}] {progress.percentage:.1f}%\n"
-            f"Speed: {progress.speed} | ETA: {progress.eta}\n"
-            f"Size: {self._format_size(progress.downloaded_bytes)} / {self._format_size(progress.total_bytes)}"
-        )
+            logger.debug(f"Error actualizando progreso: {e}")
 
     def _format_size(self, size_bytes: int) -> str:
         """Format file size in human-readable format"""
@@ -760,13 +732,13 @@ Select compression preset and resolution:
     def _estimate_processing_time(self, file_size: int) -> str:
         """Estimate processing time based on file size"""
         if file_size < 100 * 1024 * 1024:  # < 100MB
-            return "1-2 minutes"
+            return "1-2 minutos"
         elif file_size < 500 * 1024 * 1024:  # < 500MB
-            return "3-5 minutes"
+            return "3-5 minutos"
         elif file_size < 1024 * 1024 * 1024:  # < 1GB
-            return "5-10 minutes"
+            return "5-10 minutos"
         else:  # 1GB+
-            return "10-15 minutes"
+            return "10-15 minutos"
 
     def _parse_time_string(self, time_str: str) -> float:
         """Parse FFmpeg time string to seconds"""
@@ -799,7 +771,7 @@ Select compression preset and resolution:
             stdout, stderr = await result.communicate()
             return float(stdout.decode().strip())
         except Exception as e:
-            logger.warning(f"Could not get video duration: {e}")
+            logger.warning(f"No se pudo obtener la duración del video: {e}")
             return 0.0
 
     async def _cleanup_files(self, file_paths: List[str]):
@@ -809,7 +781,7 @@ Select compression preset and resolution:
                 if os.path.exists(path):
                     os.remove(path)
             except Exception as e:
-                logger.debug(f"Could not remove {path}: {e}")
+                logger.debug(f"No se pudo eliminar {path}: {e}")
 
     async def run(self):
         """Main bot execution loop"""
@@ -829,7 +801,7 @@ async def main():
         # Validate FFmpeg availability
         result = subprocess.run(['ffmpeg', '-version'], capture_output=True, text=True)
         if result.returncode != 0:
-            logger.error("FFmpeg not found. Please install FFmpeg.")
+            logger.error("FFmpeg no encontrado. Por favor instala FFmpeg.")
             return
         
         # Create and run bot
@@ -839,7 +811,7 @@ async def main():
     except KeyboardInterrupt:
         logger.info("Bot stopped by user")
     except Exception as e:
-        logger.error(f"Fatal error: {e}")
+        logger.error(f"Error fatal: {e}")
         sys.exit(1)
 
 if __name__ == '__main__':
