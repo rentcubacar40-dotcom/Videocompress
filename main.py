@@ -1,45 +1,48 @@
-#!/usr/bin/env python3
-"""
-Bot Compresor de Videos - Edición Profesional
-Optimizado para Render 4GB RAM - Compresión inteligente
-"""
-
 import os
 import asyncio
 import logging
 import tempfile
 import time
-import subprocess
 import sys
-import psutil
-import aiofiles
-from datetime import datetime, timedelta
-from dataclasses import dataclass
-from typing import Dict, List, Optional, Tuple
-from enum import Enum
-import re
-import json
+from dotenv import load_dotenv
 
-# ==================== SOLUCIÓN PARA IMGHDR ====================
+# Cargar variables de entorno PRIMERO
+load_dotenv()
+
+# Configurar logging
+logging.basicConfig(
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
+    level=logging.INFO
+)
+logger = logging.getLogger(__name__)
+
+# SOLUCIÓN PARA IMGHDR - DEBE IR ANTES DE TELEthon
 try:
     import imghdr
 except ImportError:
+    # Crear imghdr manualmente para Python 3.11+
     import types
     imghdr = types.ModuleType('imghdr')
-
+    
     def test_jpeg(h):
-        return 'jpeg' if h.startswith(b'\xff\xd8') else None
-
+        if h.startswith(b'\xff\xd8'):
+            return 'jpeg'
+        return None
+    
     def test_png(h):
-        return 'png' if h.startswith(b'\x89PNG\r\n\x1a\n') else None
-
+        if h.startswith(b'\x89PNG\r\n\x1a\n'):
+            return 'png'
+        return None
+    
     def test_gif(h):
-        return 'gif' if h.startswith(b'GIF8') else None
-
+        if h.startswith(b'GIF8'):
+            return 'gif'
+        return None
+    
     imghdr.test_jpeg = test_jpeg
     imghdr.test_png = test_png
     imghdr.test_gif = test_gif
-
+    
     def what(file, h=None):
         if h is None:
             with open(file, 'rb') as f:
@@ -49,581 +52,332 @@ except ImportError:
             if result:
                 return result
         return None
-
-    imghdr.what = what
-    sys.modules['imghdr'] = imghdr
-# ==================== FIN SOLUCIÓN IMGHDR ====================
-
-# Cargar variables de entorno
-from dotenv import load_dotenv
-load_dotenv()
-
-# Configurar logging profesional
-logging.basicConfig(
-    level=logging.INFO,
-    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
-    handlers=[
-        logging.FileHandler('compression_bot.log', encoding='utf-8'),
-        logging.StreamHandler(sys.stdout)
-    ]
-)
-logger = logging.getLogger("CompresorVideo")
-
-# Importar Telethon
-from telethon import TelegramClient, events
-from telethon.tl.custom import Button
-from telethon.tl.types import DocumentAttributeVideo, DocumentAttributeFilename, DocumentAttributeAudio
-
-class PresetCompresion(Enum):
-    COMPRESION_MAXIMA = "maxima"
-    BALANCEADO = "balanceado" 
-    CALIDAD_OPTIMA = "calidad"
-    SOLO_AUDIO = "audio"
-
-class EtapaProcesamiento(Enum):
-    DESCARGANDO = "📥 DESCARGANDO"
-    ANALIZANDO = "🔍 ANALIZANDO"
-    COMPRIMIENDO = "🎬 COMPRIMIENDO"
-    SUBIENDO = "📤 SUBIENDO"
-
-@dataclass
-class ConfiguracionCompresion:
-    nombre: str
-    crf: str
-    preset: str
-    bitrate_audio: str
-    descripcion: str
-    calidad: str
-    velocidad: str
-
-class CompresorVideoProfesional:
-    """
-    Bot de compresión de videos de alto rendimiento
-    """
     
+    imghdr.what = what
+    # Registrar en sys.modules
+    sys.modules['imghdr'] = imghdr
+
+# AHORA importar telethon
+from telethon import TelegramClient, events
+from telethon.tl.types import DocumentAttributeVideo, DocumentAttributeFilename
+from telethon.tl.custom import Button
+
+class VideoCompressorBot:
     def __init__(self):
-        # Validar variables de entorno
-        self.api_id = int(os.getenv('API_ID', 0))
-        self.api_hash = os.getenv('API_HASH', '')
-        self.bot_token = os.getenv('BOT_TOKEN', '')
-        
-        if not all([self.api_id, self.api_hash, self.bot_token]):
-            raise ValueError("Faltan variables de entorno: API_ID, API_HASH, BOT_TOKEN")
-        
-        # Configuración de rendimiento
-        self.tamaño_maximo = 2 * 1024 * 1024 * 1024  # 2GB
-        self.trabajos_concurrentes = 2
-        
-        # Gestión de estado
-        self.trabajos_activos: Dict[int, Dict] = {}
-        self.sesiones_usuario: Dict[int, Dict] = {}
-        
-        # Estadísticas del sistema
-        self.estadisticas = {
-            'trabajos_totales': 0,
-            'trabajos_exitosos': 0,
-            'trabajos_fallidos': 0,
-            'hora_inicio': datetime.now()
-        }
-        
-        # Inicializar presets de compresión
-        self.presets = self._inicializar_presets()
-        
-        # Cliente de Telegram
+        self.api_id = int(os.getenv('API_ID'))
+        self.api_hash = os.getenv('API_HASH')
+        self.bot_token = os.getenv('BOT_TOKEN')
         self.client = None
+        self.max_size = 2000 * 1024 * 1024  # 2GB máximo
+        self.pending_videos = {}
         
-        logger.info("Compresor de Video Profesional inicializado")
-
-    def _inicializar_presets(self) -> Dict[PresetCompresion, ConfiguracionCompresion]:
-        """Inicializar presets de compresión"""
-        return {
-            PresetCompresion.COMPRESION_MAXIMA: ConfiguracionCompresion(
-                nombre="🔥 COMPRESIÓN MÁXIMA",
-                crf="38",
-                preset="ultrafast", 
-                bitrate_audio="64k",
-                descripcion="Tamaño mínimo posible",
-                calidad="360p",
-                velocidad="Muy Rápida"
-            ),
-            PresetCompresion.BALANCEADO: ConfiguracionCompresion(
-                nombre="⚖️ BALANCEADO",
-                crf="32",
-                preset="superfast",
-                bitrate_audio="96k",
-                descripcion="Balance tamaño/calidad",
-                calidad="480p", 
-                velocidad="Rápida"
-            ),
-            PresetCompresion.CALIDAD_OPTIMA: ConfiguracionCompresion(
-                nombre="🎨 CALIDAD ÓPTIMA",
-                crf="28",
-                preset="fast",
-                bitrate_audio="128k",
-                descripcion="Buena calidad visual",
-                calidad="720p",
-                velocidad="Media"
-            ),
-            PresetCompresion.SOLO_AUDIO: ConfiguracionCompresion(
-                nombre="🎵 SOLO AUDIO",
-                crf="0",
-                preset="fast",
-                bitrate_audio="128k",
-                descripcion="Extrae solo audio MP3",
-                calidad="Audio",
-                velocidad="Rápida"
-            )
-        }
-
-    def _calcular_tamaño_estimado(self, tamaño_original: int, preset: PresetCompresion) -> int:
-        """Calcular tamaño estimado basado en el preset"""
-        ratios = {
-            PresetCompresion.COMPRESION_MAXIMA: 0.15,  # 15% del original
-            PresetCompresion.BALANCEADO: 0.25,         # 25% del original  
-            PresetCompresion.CALIDAD_OPTIMA: 0.40,     # 40% del original
-            PresetCompresion.SOLO_AUDIO: 0.05          # 5% del original
-        }
-        return int(tamaño_original * ratios[preset])
-
-    async def inicializar_cliente(self):
-        """Inicializar cliente de Telegram"""
-        self.client = TelegramClient(
-            'sesion_compresor',
-            self.api_id,
-            self.api_hash
-        )
-        
-        await self.client.start(bot_token=self.bot_token)
-        self._configurar_manejadores()
-        
-        logger.info("Cliente de Telegram inicializado exitosamente")
-
-    def _configurar_manejadores(self):
-        """Configurar todos los manejadores de eventos"""
-        
-        @self.client.on(events.NewMessage(pattern='/start'))
-        async def manejador_inicio(event):
-            await self._manejar_comando_inicio(event)
-
-        @self.client.on(events.NewMessage(pattern='/help'))
-        async def manejador_ayuda(event):
-            await self._manejar_comando_ayuda(event)
-
-        @self.client.on(events.NewMessage(pattern='/stats'))
-        async def manejador_estadisticas(event):
-            await self._manejar_comando_estadisticas(event)
-
-        @self.client.on(events.NewMessage(pattern='/cancel'))
-        async def manejador_cancelar(event):
-            await self._manejar_comando_cancelar(event)
-
-        @self.client.on(events.NewMessage(
-            func=lambda e: e.message.video or (
-                e.message.document and 
-                e.message.document.mime_type and 
-                'video' in e.message.document.mime_type
-            )
-        ))
-        async def manejador_video(event):
-            await self._manejar_mensaje_video(event)
-
-        @self.client.on(events.CallbackQuery())
-        async def manejador_callback(event):
-            await self._manejar_consulta_callback(event)
-
-    async def _manejar_comando_inicio(self, event):
-        """Manejar comando /start"""
-        mensaje_bienvenida = """
-🤖 **Compresor de Videos Profesional**
-
-¡Bienvenido! Envíame un video y lo comprimiré para que ocupe menos espacio.
-
-**🚀 Características:**
-• Compresión inteligente
-• Múltiples opciones de calidad
-• Progreso en tiempo real
-• Soporte para videos hasta 2GB
-
-**📋 Comandos:**
-/start - Mostrar este mensaje
-/help - Guía de uso
-/stats - Estadísticas
-/cancel - Cancelar operación
-
-¡Envía un video para comenzar!
-        """
-        await event.reply(mensaje_bienvenida)
-
-    async def _manejar_comando_ayuda(self, event):
-        """Manejar comando /help"""
-        texto_ayuda = """
-📖 **Guía de Usuario**
-
-**🎛️ Opciones de Compresión:**
-
-**🔥 COMPRESIÓN MÁXIMA**
-- Tamaño más pequeño posible
-- Calidad: 360p
-- Ideal para ahorrar espacio
-
-**⚖️ BALANCEADO** 
-- Buen balance tamaño/calidad
-- Calidad: 480p
-- Recomendado para la mayoría
-
-**🎨 CALIDAD ÓPTIMA**
-- Buena calidad visual
-- Calidad: 720p  
-- Tamaño reducido
-
-**🎵 SOLO AUDIO**
-- Extrae solo el audio
-- Formato MP3
-- Perfecto para podcasts
-        """
-        await event.reply(texto_ayuda)
-
-    async def _manejar_comando_estadisticas(self, event):
-        """Manejar comando /stats"""
-        tiempo_activo = datetime.now() - self.estadisticas['hora_inicio']
-        
-        texto_estadisticas = f"""
-📊 **Estadísticas del Sistema**
-
-**📈 Rendimiento:**
-• Tiempo activo: {str(tiempo_activo).split('.')[0]}
-• Trabajos totales: {self.estadisticas['trabajos_totales']}
-• Exitosos: {self.estadisticas['trabajos_exitosos']}
-• Fallidos: {self.estadisticas['trabajos_fallidos']}
-• Trabajos activos: {len(self.trabajos_activos)}
-        """
-        await event.reply(texto_estadisticas)
-
-    async def _manejar_comando_cancelar(self, event):
-        """Manejar comando /cancel"""
-        user_id = event.sender_id
-        
-        if user_id in self.trabajos_activos:
-            del self.trabajos_activos[user_id]
-            await event.reply("✅ Operación cancelada.")
-        else:
-            await event.reply("❌ No hay operación activa.")
-
-    async def _manejar_mensaje_video(self, event):
-        """Manejar mensajes con videos"""
-        user_id = event.sender_id
-        
-        # Verificar si el usuario tiene trabajo activo
-        if user_id in self.trabajos_activos:
-            await event.reply("⏳ Ya tienes un proceso en curso. Espera a que termine.")
-            return
-
-        mensaje = event.message
-        tamaño_archivo = mensaje.file.size
-        
-        # Validar tamaño del archivo
-        if tamaño_archivo > self.tamaño_maximo:
-            await mensaje.reply(
-                f"❌ **Archivo demasiado grande**\n\n"
-                f"Tamaño: {self._formatear_tamaño(tamaño_archivo)}\n"
-                f"Límite: {self._formatear_tamaño(self.tamaño_maximo)}"
-            )
-            return
-
-        # Almacenar información del video
-        self.sesiones_usuario[user_id] = {
-            'tamaño_archivo': tamaño_archivo,
-            'mensaje': mensaje
-        }
-
-        # Mostrar opciones de compresión
-        await self._mostrar_menu_compresion(event, tamaño_archivo)
-
-    async def _mostrar_menu_compresion(self, event, tamaño_archivo: int):
-        """Mostrar menú de selección de compresión"""
-        botones = []
-        
-        # Crear botones de presets con tamaños estimados REALES
-        for preset in PresetCompresion:
-            config = self.presets[preset]
-            tamaño_estimado = self._calcular_tamaño_estimado(tamaño_archivo, preset)
-            
-            etiqueta = f"{config.nombre} (~{self._formatear_tamaño(tamaño_estimado)})"
-            datos_callback = f"preset:{preset.value}"
-            botones.append([Button.inline(etiqueta, datos_callback.encode())])
-        
-        # Agregar botón de cancelar
-        botones.append([Button.inline("❌ Cancelar", b"cancel")])
-        
-        texto_menu = f"""
-🎬 **Opciones de Compresión**
-
-**📁 Tamaño original:** {self._formatear_tamaño(tamaño_archivo)}
-
-Selecciona el nivel de compresión:
-        """
-        
-        await event.reply(texto_menu, buttons=botones)
-
-    async def _manejar_consulta_callback(self, event):
-        """Manejar consultas de callback de botones"""
-        user_id = event.sender_id
-        datos = event.data.decode()
-        
-        try:
-            await event.answer()  # Responder callback inmediatamente
-            
-            if datos == "cancel":
-                if user_id in self.trabajos_activos:
-                    del self.trabajos_activos[user_id]
-                await event.edit("❌ Operación cancelada.")
-                return
-                
-            elif datos.startswith("preset:"):
-                preset_clave = datos.split(":")[1]
-                
-                info_video = self.sesiones_usuario.get(user_id)
-                if not info_video:
-                    await event.edit("❌ Sesión expirada. Envía el video nuevamente.")
-                    return
-                
-                # Iniciar procesamiento
-                await self._iniciar_trabajo_compresion(event, info_video, preset_clave)
-                
-        except Exception as e:
-            logger.error(f"Error en callback: {e}")
-            await event.answer("Error procesando la solicitud", alert=True)
-
-    async def _iniciar_trabajo_compresion(self, event, info_video, preset_clave: str):
-        """Iniciar trabajo de compresión de video"""
-        user_id = event.sender_id
-        
-        try:
-            # Marcar trabajo como activo
-            self.trabajos_activos[user_id] = {
-                'hora_inicio': datetime.now(),
-                'preset': preset_clave
+        # Presets de compresión
+        self.compression_presets = {
+            'ultra_turbo': {
+                'name': '🚀 ULTRA TURBO',
+                'crf': '35',
+                'preset': 'veryfast',
+                'scale': '854:480',
+                'audio_bitrate': '64k',
+                'quality': 'Baja'
+            },
+            'turbo': {
+                'name': '⚡ TURBO', 
+                'crf': '32',
+                'preset': 'veryfast',
+                'scale': '1280:720',
+                'audio_bitrate': '96k',
+                'quality': 'Media-Baja'
+            },
+            'balanced': {
+                'name': '⚖️ BALANCEADO',
+                'crf': '28', 
+                'preset': 'medium',
+                'scale': '1920:1080',
+                'audio_bitrate': '128k',
+                'quality': 'Buena'
+            },
+            'quality': {
+                'name': '🎨 CALIDAD',
+                'crf': '23',
+                'preset': 'slow', 
+                'scale': '1920:1080',
+                'audio_bitrate': '160k',
+                'quality': 'Muy Buena'
             }
-            
-            self.estadisticas['trabajos_totales'] += 1
-            
-            # Editar mensaje para mostrar que comenzó
-            config = self.presets[PresetCompresion(preset_clave)]
-            mensaje_progreso = await event.edit(
-                f"⚙️ **Iniciando compresión...**\n\n"
-                f"**Preset:** {config.nombre}\n"
-                f"**Calidad:** {config.calidad}\n"
-                f"**Descargando video...**"
-            )
-            
-            await self._procesar_video(event, info_video, preset_clave, mensaje_progreso)
-            
-        except Exception as e:
-            logger.error(f"Error en trabajo de compresión: {e}")
-            await event.edit(f"❌ **Error:** {str(e)}")
-            self.estadisticas['trabajos_fallidos'] += 1
-            if user_id in self.trabajos_activos:
-                del self.trabajos_activos[user_id]
-
-    async def _procesar_video(self, event, info_video, preset_clave: str, mensaje_progreso):
-        """Procesar video completo"""
-        user_id = event.sender_id
-        mensaje = info_video['mensaje']
-        config = self.presets[PresetCompresion(preset_clave)]
+        }
         
+    async def initialize(self):
+        """Inicializar el cliente de Telethon"""
+        self.client = TelegramClient('bot_session', self.api_id, self.api_hash)
+        await self.client.start(bot_token=self.bot_token)
+        logger.info("✅ Bot iniciado correctamente")
+        
+    async def download_file_simple(self, message):
+        """Descarga simple y confiable"""
         try:
-            # Generar nombres de archivo únicos
-            ruta_entrada = os.path.join(tempfile.gettempdir(), f"entrada_{user_id}_{int(time.time())}.mp4")
-            ruta_salida = os.path.join(tempfile.gettempdir(), f"salida_{user_id}_{int(time.time())}.mp4")
+            status_msg = await message.reply("📥 Descargando video...")
             
-            # Etapa 1: Descargar (CORREGIDO)
-            await mensaje_progreso.edit("📥 **Descargando video...**\n0%")
-            await self._descargar_video_simple(mensaje, ruta_entrada, mensaje_progreso)
+            # Crear archivo temporal
+            temp_dir = tempfile.gettempdir()
+            file_name = f"video_{message.id}_{int(time.time())}.mp4"
+            file_path = os.path.join(temp_dir, file_name)
             
-            # Etapa 2: Comprimir
-            await mensaje_progreso.edit("🎬 **Comprimiendo video...**\n0%")
-            await self._comprimir_video(ruta_entrada, ruta_salida, preset_clave, mensaje_progreso)
+            # Descargar directamente
+            await message.download_media(file=file_path)
             
-            # Etapa 3: Subir
-            await mensaje_progreso.edit("📤 **Subiendo resultado...**")
-            await self._subir_resultado(event, ruta_salida, preset_clave)
-            
-            # Éxito
-            self.estadisticas['trabajos_exitosos'] += 1
-            tiempo_trabajo = (datetime.now() - self.trabajos_activos[user_id]['hora_inicio']).total_seconds()
-            
-            tamaño_final = os.path.getsize(ruta_salida) if os.path.exists(ruta_salida) else 0
-            reduccion = ((info_video['tamaño_archivo'] - tamaño_final) / info_video['tamaño_archivo']) * 100
-            
-            await mensaje_progreso.edit(
-                f"✅ **¡Compresión completada!**\n\n"
-                f"**Reducción:** {reduccion:.1f}%\n"
-                f"**Tiempo:** {tiempo_trabajo:.1f}s\n"
-                f"**Calidad:** {config.calidad}"
-            )
-            
-        except Exception as e:
-            logger.error(f"Error en procesamiento: {e}")
-            await mensaje_progreso.edit(f"❌ **Error en procesamiento:** {str(e)}")
-            raise
-        finally:
-            # Limpiar archivos temporales
-            await self._limpiar_archivos([ruta_entrada, ruta_salida])
-            
-            # Limpiar estado del usuario
-            if user_id in self.trabajos_activos:
-                del self.trabajos_activos[user_id]
-            if user_id in self.sesiones_usuario:
-                del self.sesiones_usuario[user_id]
-
-    async def _descargar_video_simple(self, mensaje, ruta_entrada: str, mensaje_progreso):
-        """Descargar video de forma simple y confiable"""
-        try:
-            # Descargar sin callback de progreso (más confiable)
-            await mensaje.download_media(file=ruta_entrada)
-            
-            # Verificar que se descargó correctamente
-            if os.path.exists(ruta_entrada) and os.path.getsize(ruta_entrada) > 0:
-                await mensaje_progreso.edit("✅ **Video descargado correctamente**\n🎬 Comprimiendo...")
-                return True
+            # Verificar que se descargó
+            if os.path.exists(file_path) and os.path.getsize(file_path) > 0:
+                file_size = os.path.getsize(file_path)
+                await status_msg.edit(f"✅ Descarga completada: {self.get_file_size(file_size)}")
+                return file_path
             else:
-                raise Exception("El archivo no se descargó correctamente")
+                await status_msg.edit("❌ Error: Archivo vacío o no descargado")
+                return None
                 
         except Exception as e:
             logger.error(f"Error en descarga: {e}")
-            raise Exception(f"Error descargando el video: {str(e)}")
-
-    async def _comprimir_video(self, ruta_entrada: str, ruta_salida: str, preset_clave: str, mensaje_progreso):
-        """Comprimir video usando FFmpeg"""
-        config = self.presets[PresetCompresion(preset_clave)]
-        
-        # Construir comando FFmpeg
-        if preset_clave == "audio":
-            comando = [
-                'ffmpeg', '-i', ruta_entrada, '-vn',
-                '-c:a', 'libmp3lame', '-b:a', config.bitrate_audio,
-                '-y', ruta_salida
-            ]
-        else:
-            # Determinar resolución basada en el preset
-            if preset_clave == "maxima":
-                resolucion = "360"
-            elif preset_clave == "balanceado":
-                resolucion = "480" 
-            else:  # calidad
-                resolucion = "720"
-                
-            comando = [
-                'ffmpeg', '-i', ruta_entrada,
-                '-c:v', 'libx264', '-crf', config.crf,
-                '-preset', config.preset,
-                '-c:a', 'aac', '-b:a', config.bitrate_audio,
-                '-vf', f'scale=-2:{resolucion}',
-                '-movflags', '+faststart',
-                '-y', ruta_salida
-            ]
-        
-        # Ejecutar compresión
+            await message.reply("❌ Error al descargar el video")
+            return None
+    
+    async def show_compression_options(self, message, file_size):
+        """Mostrar opciones de compresión"""
         try:
-            proceso = await asyncio.create_subprocess_exec(
-                *comando,
-                stdout=asyncio.subprocess.PIPE,
-                stderr=asyncio.subprocess.PIPE
+            buttons = []
+            
+            for preset_key, preset in self.compression_presets.items():
+                estimated_size = self.calculate_estimated_size(file_size, preset_key)
+                button_text = f"{preset['name']} (~{self.get_file_size(estimated_size)})"
+                button = Button.inline(button_text, f"compress_{preset_key}".encode())
+                buttons.append([button])
+            
+            menu_text = f"""
+🎬 **VIDEO RECIBIDO: {self.get_file_size(file_size)}**
+
+Elige cómo comprimir:
+
+"""
+            for preset_key, preset in self.compression_presets.items():
+                estimated_size = self.calculate_estimated_size(file_size, preset_key)
+                reduction = (1 - (estimated_size / file_size)) * 100
+                menu_text += f"**{preset['name']}** - ~{self.get_file_size(estimated_size)} ({reduction:.1f}% reducción)\n"
+            
+            # Guardar video pendiente
+            self.pending_videos[message.sender_id] = {
+                'file_size': file_size,
+                'message': message
+            }
+            
+            await message.reply(menu_text, buttons=buttons)
+            
+        except Exception as e:
+            logger.error(f"Error mostrando opciones: {e}")
+            await message.reply("❌ Error al mostrar opciones")
+    
+    def calculate_estimated_size(self, original_size, preset_key):
+        """Calcular tamaño estimado"""
+        reduction_ratios = {
+            'ultra_turbo': 0.10,  # 90% reducción
+            'turbo': 0.20,        # 80% reducción  
+            'balanced': 0.35,     # 65% reducción
+            'quality': 0.55,      # 45% reducción
+        }
+        ratio = reduction_ratios.get(preset_key, 0.35)
+        return original_size * ratio
+    
+    async def handle_button_callback(self, event):
+        """Manejar botones"""
+        try:
+            data = event.data.decode()
+            user_id = event.sender_id
+            
+            if data.startswith("compress_"):
+                preset_key = data.replace("compress_", "")
+                
+                if user_id not in self.pending_videos:
+                    await event.answer("❌ No hay video pendiente", alert=True)
+                    return
+                
+                video_info = self.pending_videos[user_id]
+                await self.process_video(event, preset_key, video_info)
+                
+        except Exception as e:
+            logger.error(f"Error en callback: {e}")
+            await event.answer("❌ Error", alert=True)
+    
+    async def process_video(self, event, preset_key, video_info):
+        """Procesar video completo"""
+        try:
+            message = video_info['message']
+            file_size = video_info['file_size']
+            preset = self.compression_presets[preset_key]
+            
+            await event.edit(f"🔄 Procesando con {preset['name']}...")
+            
+            # PASO 1: Descargar
+            input_path = await self.download_file_simple(message)
+            if not input_path:
+                return
+            
+            # PASO 2: Comprimir
+            await event.edit("⚙️ Comprimiendo video...")
+            output_path = await self.compress_video(input_path, message, preset_key)
+            
+            if not output_path:
+                self.cleanup_files(input_path)
+                await event.edit("❌ Error en compresión")
+                return
+            
+            # PASO 3: Subir
+            await event.edit("📤 Subiendo resultado...")
+            success = await self.upload_file(message, output_path, preset_key)
+            
+            # Limpiar
+            self.cleanup_files(input_path, output_path)
+            if user_id in self.pending_videos:
+                del self.pending_videos[user_id]
+            
+            if success:
+                await event.edit("🎉 ¡Completado!")
+            else:
+                await event.edit("❌ Error al subir")
+                
+        except Exception as e:
+            logger.error(f"Error procesando: {e}")
+            await event.edit("❌ Error inesperado")
+    
+    async def compress_video(self, input_path, message, preset_key):
+        """Comprimir video"""
+        try:
+            preset = self.compression_presets[preset_key]
+            temp_dir = tempfile.gettempdir()
+            output_path = os.path.join(temp_dir, f"compressed_{message.id}.mp4")
+            
+            # Comando FFmpeg simple
+            cmd = [
+                'ffmpeg', '-i', input_path,
+                '-c:v', 'libx264', '-crf', preset['crf'],
+                '-preset', preset['preset'], '-c:a', 'aac',
+                '-b:a', preset['audio_bitrate'], '-y', output_path
+            ]
+            
+            # Ejecutar
+            process = await asyncio.create_subprocess_exec(
+                *cmd, stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE
             )
             
-            await proceso.wait()
+            stdout, stderr = await process.communicate()
             
-            if not os.path.exists(ruta_salida) or os.path.getsize(ruta_salida) == 0:
-                raise Exception("La compresión falló - archivo de salida vacío")
+            if process.returncode == 0 and os.path.exists(output_path):
+                return output_path
+            else:
+                return None
                 
         except Exception as e:
-            logger.error(f"Error en compresión: {e}")
-            raise Exception(f"Error comprimiendo el video: {str(e)}")
-
-    async def _subir_resultado(self, event, ruta_salida: str, preset_clave: str):
-        """Subir archivo comprimido"""
-        if not os.path.exists(ruta_salida):
-            raise FileNotFoundError("Archivo comprimido no encontrado")
-            
-        tamaño_archivo = os.path.getsize(ruta_salida)
-        config = self.presets[PresetCompresion(preset_clave)]
-        
-        descripcion = (
-            f"**✅ Video Comprimido**\n"
-            f"• Preset: {config.nombre}\n" 
-            f"• Calidad: {config.calidad}\n"
-            f"• Tamaño: {self._formatear_tamaño(tamaño_archivo)}"
-        )
-        
-        # Enviar archivo
-        await self.client.send_file(
-            event.chat_id,
-            ruta_salida,
-            caption=descripcion,
-            attributes=[
-                DocumentAttributeVideo(
-                    duration=0,
-                    w=0,
-                    h=0,
-                )
-            ] if preset_clave != "audio" else [
-                DocumentAttributeAudio(
-                    duration=0,
-                    title=f"Audio Extraído"
-                )
-            ]
-        )
-
-    def _formatear_tamaño(self, tamaño_bytes: int) -> str:
-        """Formatear tamaño de archivo en formato legible"""
-        if tamaño_bytes == 0:
-            return "0B"
-        
-        unidades = ["B", "KB", "MB", "GB"]
-        i = 0
-        while tamaño_bytes >= 1024 and i < len(unidades) - 1:
-            tamaño_bytes /= 1024.0
-            i += 1
-            
-        return f"{tamaño_bytes:.1f} {unidades[i]}"
-
-    async def _limpiar_archivos(self, rutas_archivos: List[str]):
-        """Limpiar archivos temporales"""
-        for ruta in rutas_archivos:
-            try:
-                if os.path.exists(ruta):
-                    os.remove(ruta)
-            except Exception as e:
-                logger.debug(f"No se pudo eliminar {ruta}: {e}")
-
-    async def ejecutar(self):
-        """Bucle principal de ejecución del bot"""
+            logger.error(f"Error comprimiendo: {e}")
+            return None
+    
+    async def upload_file(self, message, file_path, preset_key):
+        """Subir archivo"""
         try:
-            await self.inicializar_cliente()
-            logger.info("Bot ejecutándose...")
-            await self.client.run_until_disconnected()
+            preset = self.compression_presets[preset_key]
+            file_name = f"compressed_{preset_key}.mp4"
+            
+            await self.client.send_file(
+                message.chat_id, file_path,
+                caption=f"🎥 Comprimido con {preset['name']}",
+                attributes=[
+                    DocumentAttributeVideo(duration=0, w=0, h=0, supports_streaming=True),
+                    DocumentAttributeFilename(file_name=file_name)
+                ],
+                force_document=False
+            )
+            return True
+            
         except Exception as e:
-            logger.error(f"Bot falló: {e}")
-            raise
+            logger.error(f"Error subiendo: {e}")
+            return False
+    
+    def get_file_size(self, size_bytes):
+        """Formatear tamaño"""
+        if size_bytes == 0: return "0B"
+        size_names = ["B", "KB", "MB", "GB"]
+        i = 0
+        while size_bytes >= 1024 and i < len(size_names) - 1:
+            size_bytes /= 1024.0
+            i += 1
+        return f"{size_bytes:.2f} {size_names[i]}"
+    
+    def cleanup_files(self, *files):
+        """Limpiar archivos"""
+        for file_path in files:
+            try:
+                if file_path and os.path.exists(file_path):
+                    os.remove(file_path)
+            except Exception as e:
+                logger.error(f"Error limpiando {file_path}: {e}")
+    
+    async def handle_video(self, event):
+        """Manejar video"""
+        try:
+            message = event.message
+            
+            if not (message.video or 
+                   (message.document and message.document.mime_type and 
+                    'video' in message.document.mime_type)):
+                return
+            
+            file_size = message.file.size
+            
+            if file_size > self.max_size:
+                await message.reply(f"❌ Muy grande: {self.get_file_size(file_size)}")
+                return
+            
+            await self.show_compression_options(message, file_size)
+                
+        except Exception as e:
+            logger.error(f"Error en handle_video: {e}")
+            await event.message.reply("❌ Error")
+    
+    async def handle_start(self, event):
+        """Comando /start"""
+        start_text = """
+🎬 **BOT COMPRESOR**
+
+Envía un video y elige cómo comprimirlo.
+
+📦 Límite: 2GB
+⚡ Opciones: Turbo, Balanceado, Calidad
+
+¡Envía un video para comenzar!
+        """
+        await event.message.reply(start_text)
+
+    async def run(self):
+        """Ejecutar bot"""
+        await self.initialize()
+        
+        self.client.add_event_handler(self.handle_start, events.NewMessage(pattern='/start'))
+        self.client.add_event_handler(self.handle_button_callback, events.CallbackQuery())
+        self.client.add_event_handler(self.handle_video, events.NewMessage(
+            func=lambda e: e.message.video or 
+            (e.message.document and e.message.document.mime_type and 
+             'video' in e.message.document.mime_type))
+        )
+        
+        logger.info("🤖 Bot ejecutándose")
+        await self.client.run_until_disconnected()
 
 async def main():
-    """Punto de entrada de la aplicación"""
-    try:
-        # Validar FFmpeg
-        resultado = subprocess.run(['ffmpeg', '-version'], capture_output=True, text=True)
-        if resultado.returncode != 0:
-            logger.error("FFmpeg no encontrado. Por favor instala FFmpeg.")
-            return
-        
-        # Crear y ejecutar bot
-        bot = CompresorVideoProfesional()
-        await bot.ejecutar()
-        
-    except KeyboardInterrupt:
-        logger.info("Bot detenido por el usuario")
-    except Exception as e:
-        logger.error(f"Error fatal: {e}")
-        sys.exit(1)
+    required_vars = ['API_ID', 'API_HASH', 'BOT_TOKEN']
+    missing_vars = [var for var in required_vars if not os.getenv(var)]
+    
+    if missing_vars:
+        logger.error(f"❌ Variables faltantes: {missing_vars}")
+        return
+    
+    bot = VideoCompressorBot()
+    await bot.run()
 
 if __name__ == '__main__':
     asyncio.run(main())
