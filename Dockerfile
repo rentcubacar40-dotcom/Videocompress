@@ -3,9 +3,7 @@ FROM python:3.11-slim
 # Instalar dependencias del sistema
 RUN apt-get update && apt-get install -y \
     ffmpeg \
-    git \
-    gcc \
-    g++ \
+    wget \
     && rm -rf /var/lib/apt/lists/*
 
 # Crear directorio de trabajo
@@ -18,15 +16,22 @@ COPY requirements.txt .
 RUN pip install --no-cache-dir --upgrade pip && \
     pip install --no-cache-dir -r requirements.txt
 
-# Crear directorios necesarios
-RUN mkdir -p /app/session /app/downloads /app/compressed
-
 # Copiar el código
 COPY main.py .
 
-# Variables de entorno (se pueden sobrescribir en Render)
+# Crear directorios necesarios
+RUN mkdir -p /app/session /app/downloads /app/compressed
+
+# Crear archivo data.json inicial si no existe
+RUN echo '{"authorized_users": [], "authorized_groups": [], "admins": [], "super_admins": []}' > /app/data.json || true
+
+# Variables de entorno
 ENV PYTHONUNBUFFERED=1
 ENV PYTHONPATH=/app
+ENV PORT=10000
 
-# Comando para ejecutar el bot
+# Exponer puerto (obligatorio para Render)
+EXPOSE 10000
+
+# Comando de inicio
 CMD ["python", "main.py"]
