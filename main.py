@@ -56,7 +56,7 @@ class Config:
     
     # Configuración del bot
     MAX_CONCURRENT_JOBS = 3           # Máximo de compresiones simultáneas
-    ALLOWED_USERS = []                # Lista de IDs permitidos (vacío = todos)
+    ALLOWED_USERS = [7363341763]                # Lista de IDs permitidos (vacío = todos)
     
     # Tiempos de espera
     DOWNLOAD_TIMEOUT = 300            # 5 minutos para descarga
