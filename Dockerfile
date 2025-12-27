@@ -22,7 +22,7 @@ RUN pip install --no-cache-dir --upgrade pip && \
 RUN mkdir -p /app/session /app/downloads /app/compressed
 
 # Copiar el código
-COPY bot.py .
+COPY main.py .
 
 # Variables de entorno (se pueden sobrescribir en Render)
 ENV PYTHONUNBUFFERED=1
