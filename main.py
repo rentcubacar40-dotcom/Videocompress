@@ -11,9 +11,9 @@ import threading
 import ffmpeg
 
 # Configuración del bot
-API_ID = os.environ.get('API_ID', '20534584')
-API_HASH = os.environ.get('API_HASH', '6d5b13261d2c92a9a00afc1fd613b9df')
-BOT_TOKEN = os.environ.get('BOT_TOKEN', '8562042457:AAGA__pfWDMVfdslzqwnoFl4yLrAre-HJ5I')
+API_ID = '20534584'
+API_HASH = '6d5b13261d2c92a9a00afc1fd613b9df'
+BOT_TOKEN = '8562042457:AAGA__pfWDMVfdslzqwnoFl4yLrAre-HJ5I'
 
 # Lista de administradores supremos (IDs de usuario)
 SUPER_ADMINS = [7363341763]  # Reemplaza con los IDs de los administradores supremos
@@ -41,7 +41,7 @@ DEFAULT_QUALITY = {
 current_calidad = {}
 
 # Límite de tamaño de video (en bytes)
-max_video_size = 5 * 1024 * 1024 * 1024  # 5GB por defecto
+max_video_size = 5 * 1024 * 1024 * 1024  # 1GB por defecto
 
 # Configuración de logging
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
@@ -74,22 +74,20 @@ def save_data():
     data = {
         'authorized_users': AUTHORIZED_USERS,
         'authorized_groups': AUTHORIZED_GROUPS,
-        'admins': ADMINS,
-        'super_admins': SUPER_ADMINS
+        'admins': ADMINS
     }
-    with open('/app/data.json', 'w') as f:
+    with open('data.json', 'w') as f:
         json.dump(data, f)
 
 # Función para cargar los datos desde un archivo JSON
 def load_data():
-    global AUTHORIZED_USERS, AUTHORIZED_GROUPS, ADMINS, SUPER_ADMINS
+    global AUTHORIZED_USERS, AUTHORIZED_GROUPS, ADMINS
     try:
-        with open('/app/data.json', 'r') as f:
+        with open('data.json', 'r') as f:
             data = json.load(f)
             AUTHORIZED_USERS = data.get('authorized_users', [])
             AUTHORIZED_GROUPS = data.get('authorized_groups', [])
             ADMINS = data.get('admins', [])
-            SUPER_ADMINS = data.get('super_admins', [])
     except FileNotFoundError:
         pass
 
@@ -168,7 +166,7 @@ async def help(client: Client, message: Message):
         - **/ban_admins**: Quita un administrador. Uso: `/ban_admins user_id` (Solo Administradores Supremos)
         - **/listadmins**: Lista los administradores.
         - **/info**: Envia un mensaje a todos los usuarios y grupos autorizados. Uso: `/info [mensaje]`
-        - **/max**: Establece el límite de tamaño para los videos. Uso: `/max [tamaño en MB o GB]**
+        - **/max**: Establece el límite de tamaño para los videos. Uso: `/max [tamaño en MB o GB]`
 
         **𝐂𝐚𝐥𝐢𝐝𝐚𝐝 𝐩𝐫𝐞𝐝𝐞𝐭𝐞𝐫𝐦𝐢𝐧𝐚𝐝𝐚📔:**
         - resolution: 740x480
@@ -547,8 +545,8 @@ async def handle_video(client: Client, message: Message):
              file_name = f"{base_name}.mkv"
 
         # Descargar el video
-        input_file = f"/app/downloads/{file_name}"
-        os.makedirs("/app/downloads", exist_ok=True)
+        input_file = f"downloads/{file_name}"
+        os.makedirs("downloads", exist_ok=True)
         try:
             await message.download(file_name=input_file)
         except Exception as e:
@@ -561,13 +559,13 @@ async def handle_video(client: Client, message: Message):
 
         # Verificar si el video excede el límite de tamaño
         if original_size > max_video_size:
-            await message.reply_text(f"⛔𝐄𝐬𝐭𝐞 𝐯𝐢𝐝𝐞𝐨 𝐞𝐱𝐞𝐝𝐞 𝐞𝐥 𝐥𝐢𝐦𝐢𝐭𝐞 𝐝𝐞 {max_video_size / (1024 * 1024 * 1024):.2f}𝐆𝐁⛔")
+            await message.reply_text(f"⛔𝐄𝐬𝐭𝐞 𝐯𝐢𝐝𝐞𝐨 𝐞𝐱𝐞𝐝𝐞 𝐞𝐥 𝐥𝐢𝐦𝐢??𝐞 𝐝𝐞 {max_video_size / (1024 * 1024 * 1024):.2f}𝐌𝐁⛔")
             os.remove(input_file)
             return
 
         # Comprimir el video
-        output_file = f"/app/compressed/{file_name}"
-        os.makedirs("/app/compressed", exist_ok=True)
+        output_file = f"compressed/{file_name}"
+        os.makedirs("compressed", exist_ok=True)
         start_time = time.time()
         await message.reply_text("𝐂𝐨𝐧𝐯𝐢𝐫𝐭𝐢𝐞𝐧𝐝𝐨 𝐕𝐢𝐝𝐞𝐨📹")
         returncode = await compress_video(input_file, output_file, message.from_user.id)
@@ -601,12 +599,8 @@ async def handle_video(client: Client, message: Message):
                 logger.error(f"⭕𝐄𝐫𝐫𝐨𝐫 𝐚𝐥 𝐬𝐮𝐛𝐢𝐫 𝐞𝐥 𝐯𝐢𝐝𝐞𝐨: {e}⭕")
                 await message.reply_text("⭕𝐄𝐫𝐫𝐨𝐫 𝐚𝐥 𝐬𝐮𝐛𝐢𝐫 𝐞𝐥 𝐕𝐢𝐝𝐞𝐨⭕.")
             finally:
-                # Limpiar archivos temporales
-                try:
-                    os.remove(input_file)
-                    os.remove(output_file)
-                except:
-                    pass
+                os.remove(input_file)
+                os.remove(output_file)
     else:
         await message.reply_text(
             "⛔𝐍𝐨 𝐩𝐨𝐬𝐞𝐞 𝐚𝐜𝐜𝐞𝐬𝐨⛔\n\n𝐇𝐚𝐛𝐥𝐞 𝐜𝐨𝐧 𝐞𝐥 𝐃𝐞𝐬𝐚𝐫𝐫𝐨𝐥𝐥𝐚𝐝𝐨𝐫.",
@@ -631,27 +625,4 @@ async def about(client: Client, message: Message):
 
     await message.reply_text(about_text)
 
-# ===================== PEQUEÑA MODIFICACIÓN PARA RENDER =====================
-# Agregar un endpoint HTTP simple para que Render detecte el puerto
-
-from aiohttp import web
-import threading
-
-async def handle_health(request):
-    return web.Response(text="OK")
-
-def run_web_server():
-    """Ejecutar un servidor web simple en puerto 8080"""
-    app_web = web.Application()
-    app_web.router.add_get('/health', handle_health)
-    app_web.router.add_get('/', lambda r: web.Response(text="Bot de Telegram activo"))
-    
-    web.run_app(app_web, port=8080)
-
-# Iniciar servidor web en hilo separado
-web_thread = threading.Thread(target=run_web_server, daemon=True)
-web_thread.start()
-
-# Ejecutar el bot de Telegram
-logger.info("🤖 Iniciando bot de Telegram...")
 app.run()
