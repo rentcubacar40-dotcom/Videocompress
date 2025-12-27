@@ -35,9 +35,9 @@ load_dotenv()
 # ==================== CONFIGURACIÓN ====================
 class Config:
     # Credenciales de la API de Telegram
-    API_ID = int(os.getenv("API_ID", 20534584))
-    API_HASH = os.getenv("API_HASH", "6d5b13261d2c92a9a00afc1fd613b9df")
-    BOT_TOKEN = os.getenv("BOT_TOKEN", "8562042457:AAGA__pfWDMVfdslzqwnoFl4yLrAre-HJ5I")
+    API_ID = int(os.getenv("API_ID", 123456))
+    API_HASH = os.getenv("API_HASH", "tu_api_hash")
+    BOT_TOKEN = os.getenv("BOT_TOKEN", "tu_bot_token")
     
     # Configuración de compresión
     COMPRESSION_SETTINGS = {
@@ -334,8 +334,17 @@ class VideoCompressionBot:
         
         if message.video:
             file = message.video
-        elif message.document and message.document.mime_type and 'video' in message.document.mime_type:
-            file = message.document
+        elif message.document:
+            # Verificar si es un video por extensión del archivo
+            if hasattr(message.document, 'file_name'):
+                file_ext = os.path.splitext(message.document.file_name.lower())[1]
+                video_extensions = ['.mp4', '.avi', '.mkv', '.mov', '.wmv', '.flv', '.webm', '.m4v']
+                if file_ext in video_extensions:
+                    file = message.document
+                else:
+                    return None
+            else:
+                return None
         else:
             return None
         
@@ -582,27 +591,41 @@ class VideoCompressionBot:
                 await message.reply_text("❌ No estás autorizado para usar este bot.")
                 return
             
-            if message.reply_to_message and (
-                message.reply_to_message.video or 
-                (message.reply_to_message.document and 
-                 message.reply_to_message.document.mime_type and 
-                 'video' in message.reply_to_message.document.mime_type)
-            ):
-                # Descargar y comprimir video respondido
-                video_path = await self._download_video(message.reply_to_message, user_id)
-                if video_path:
-                    asyncio.create_task(self._compress_and_send(message, video_path))
+            # Verificar si es respuesta a un mensaje con video
+            if message.reply_to_message:
+                if message.reply_to_message.video:
+                    target_msg = message.reply_to_message
+                elif message.reply_to_message.document:
+                    # Verificar por extensión del archivo
+                    if hasattr(message.reply_to_message.document, 'file_name'):
+                        file_ext = os.path.splitext(message.reply_to_message.document.file_name.lower())[1]
+                        video_extensions = ['.mp4', '.avi', '.mkv', '.mov', '.wmv', '.flv', '.webm', '.m4v']
+                        if file_ext in video_extensions:
+                            target_msg = message.reply_to_message
+                        else:
+                            await message.reply_text("❌ El archivo adjunto no parece ser un video soportado")
+                            return
+                    else:
+                        await message.reply_text("❌ No se puede determinar el tipo de archivo")
+                        return
                 else:
-                    await message.reply_text("❌ No se pudo descargar el video")
-            
-            elif message.video or (message.document and message.document.mime_type and 'video' in message.document.mime_type):
-                # Descargar y comprimir video enviado directamente
-                video_path = await self._download_video(message, user_id)
-                if video_path:
-                    asyncio.create_task(self._compress_and_send(message, video_path))
+                    await message.reply_text("❌ Responde a un video para comprimirlo")
+                    return
+            elif message.video:
+                target_msg = message
+            elif message.document:
+                # Verificar por extensión del archivo
+                if hasattr(message.document, 'file_name'):
+                    file_ext = os.path.splitext(message.document.file_name.lower())[1]
+                    video_extensions = ['.mp4', '.avi', '.mkv', '.mov', '.wmv', '.flv', '.webm', '.m4v']
+                    if file_ext in video_extensions:
+                        target_msg = message
+                    else:
+                        await message.reply_text("❌ El archivo adjunto no parece ser un video soportado")
+                        return
                 else:
-                    await message.reply_text("❌ No se pudo descargar el video")
-            
+                    await message.reply_text("❌ No se puede determinar el tipo de archivo")
+                    return
             else:
                 await message.reply_text(
                     "📤 **Envía un video para comprimir**\n\n"
@@ -614,6 +637,14 @@ class VideoCompressionBot:
                         InlineKeyboardButton("❌ Cancelar", callback_data="cancel_operation")
                     ]])
                 )
+                return
+            
+            # Descargar y comprimir video
+            video_path = await self._download_video(target_msg, user_id)
+            if video_path:
+                asyncio.create_task(self._compress_and_send(message, video_path))
+            else:
+                await message.reply_text("❌ No se pudo descargar el video")
         
         @self.app.on_message(filters.command("info"))
         async def info_command(client: Client, message: Message):
@@ -624,7 +655,18 @@ class VideoCompressionBot:
             
             target_message = message.reply_to_message if message.reply_to_message else message
             
-            if target_message.video or (target_message.document and target_message.document.mime_type and 'video' in target_message.document.mime_type):
+            # Verificar si es un video
+            is_video = False
+            if target_message.video:
+                is_video = True
+            elif target_message.document:
+                if hasattr(target_message.document, 'file_name'):
+                    file_ext = os.path.splitext(target_message.document.file_name.lower())[1]
+                    video_extensions = ['.mp4', '.avi', '.mkv', '.mov', '.wmv', '.flv', '.webm', '.m4v']
+                    if file_ext in video_extensions:
+                        is_video = True
+            
+            if is_video:
                 # Descargar temporalmente para analizar
                 video_path = await self._download_video(target_message, user_id)
                 
@@ -727,11 +769,23 @@ class VideoCompressionBot:
             else:
                 await message.reply_text("ℹ️ No tienes compresiones activas para cancelar")
         
-        @self.app.on_message(filters.video | (filters.document & filters.mime_type("video")))
+        @self.app.on_message(filters.video | filters.document)
         async def handle_video_message(client: Client, message: Message):
             user_id = message.from_user.id
             
             if not self._check_user_allowed(user_id):
+                return
+            
+            # Verificar si es un documento de video
+            is_video_document = False
+            if message.document and hasattr(message.document, 'file_name'):
+                file_ext = os.path.splitext(message.document.file_name.lower())[1]
+                video_extensions = ['.mp4', '.avi', '.mkv', '.mov', '.wmv', '.flv', '.webm', '.m4v']
+                if file_ext in video_extensions:
+                    is_video_document = True
+            
+            # Solo procesar si es video o documento de video
+            if not (message.video or is_video_document):
                 return
             
             # No procesar automáticamente si hay muchos trabajos
@@ -779,7 +833,18 @@ class VideoCompressionBot:
                             message_id
                         )
                         
-                        if original_message.video or (original_message.document and 'video' in original_message.document.mime_type):
+                        # Verificar si es video
+                        is_video = False
+                        if original_message.video:
+                            is_video = True
+                        elif original_message.document:
+                            if hasattr(original_message.document, 'file_name'):
+                                file_ext = os.path.splitext(original_message.document.file_name.lower())[1]
+                                video_extensions = ['.mp4', '.avi', '.mkv', '.mov', '.wmv', '.flv', '.webm', '.m4v']
+                                if file_ext in video_extensions:
+                                    is_video = True
+                        
+                        if is_video:
                             await callback_query.answer("Descargando video...")
                             
                             video_path = await self._download_video(original_message, user_id)
@@ -803,7 +868,18 @@ class VideoCompressionBot:
                             message_id
                         )
                         
-                        if original_message.video or (original_message.document and 'video' in original_message.document.mime_type):
+                        # Verificar si es video
+                        is_video = False
+                        if original_message.video:
+                            is_video = True
+                        elif original_message.document:
+                            if hasattr(original_message.document, 'file_name'):
+                                file_ext = os.path.splitext(original_message.document.file_name.lower())[1]
+                                video_extensions = ['.mp4', '.avi', '.mkv', '.mov', '.wmv', '.flv', '.webm', '.m4v']
+                                if file_ext in video_extensions:
+                                    is_video = True
+                        
+                        if is_video:
                             video_path = await self._download_video(original_message, user_id)
                             
                             if video_path:
