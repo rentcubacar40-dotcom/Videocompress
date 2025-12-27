@@ -1,4 +1,4 @@
-import os
+Créame el requirements que necesita este código para funcionar, es para usar en Render así que también el dockerfile import os
 import asyncio
 import logging
 from pyrogram import Client, filters
@@ -9,17 +9,11 @@ import json
 import sys
 import threading
 import ffmpeg
-from fastapi import FastAPI
-import uvicorn
-from dotenv import load_dotenv
 
-# Cargar variables de entorno
-load_dotenv()
-
-# Configuración del bot desde variables de entorno
-API_ID = os.getenv('API_ID', '20534584')
-API_HASH = os.getenv('API_HASH', '6d5b13261d2c92a9a00afc1fd613b9df')
-BOT_TOKEN = os.getenv('BOT_TOKEN', '8562042457:AAGA__pfWDMVfdslzqwnoFl4yLrAre-HJ5I')
+# Configuración del bot
+API_ID = '20534584'
+API_HASH = '6d5b13261d2c92a9a00afc1fd613b9df'
+BOT_TOKEN = '8562042457:AAGA__pfWDMVfdslzqwnoFl4yLrAre-HJ5I'
 
 # Lista de administradores supremos (IDs de usuario)
 SUPER_ADMINS = [7363341763]  # Reemplaza con los IDs de los administradores supremos
@@ -47,26 +41,14 @@ DEFAULT_QUALITY = {
 current_calidad = {}
 
 # Límite de tamaño de video (en bytes)
-max_video_size = 5 * 1024 * 1024 * 1024  # 5GB por defecto
+max_video_size = 5 * 1024 * 1024 * 1024  # 1GB por defecto
 
 # Configuración de logging
-logging.basicConfig(
-    level=logging.INFO, 
-    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
-)
-logger = logging.getLogger(__name__)
+logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
+logger = logging.getLogger()
 
 # Inicialización del bot
-app = Client(
-    "ffmpeg_bot", 
-    api_id=API_ID, 
-    api_hash=API_HASH, 
-    bot_token=BOT_TOKEN, 
-    workdir="/app/session"
-)
-
-# Crear aplicación FastAPI para Render
-web_app = FastAPI(title="Video Compressor Bot", version="1.0.0")
+app = Client("ffmpeg_bot", api_id=API_ID, api_hash=API_HASH, bot_token=BOT_TOKEN, workdir="/app/session")
 
 # Función para verificar si el usuario es un administrador supremo
 def is_super_admin(user_id):
@@ -84,7 +66,7 @@ def is_authorized(user_id):
 def is_authorized_group(chat_id):
     if chat_id in AUTHORIZED_GROUPS:
         return True
-    logger.info(f"❌ Grupo {chat_id} no autorizado ❌")
+    logger.info(f"❌𝐆𝐫𝐮𝐩𝐨 {chat_id} 𝐧𝐨 𝐚𝐮𝐭𝐨𝐫𝐢𝐳𝐚𝐝𝐨❌.")
     return False
 
 # Función para guardar los datos en un archivo JSON
@@ -92,28 +74,22 @@ def save_data():
     data = {
         'authorized_users': AUTHORIZED_USERS,
         'authorized_groups': AUTHORIZED_GROUPS,
-        'admins': ADMINS,
-        'super_admins': SUPER_ADMINS
+        'admins': ADMINS
     }
-    with open('/app/data.json', 'w') as f:
-        json.dump(data, f, indent=2)
+    with open('data.json', 'w') as f:
+        json.dump(data, f)
 
 # Función para cargar los datos desde un archivo JSON
 def load_data():
-    global AUTHORIZED_USERS, AUTHORIZED_GROUPS, ADMINS, SUPER_ADMINS
+    global AUTHORIZED_USERS, AUTHORIZED_GROUPS, ADMINS
     try:
-        with open('/app/data.json', 'r') as f:
+        with open('data.json', 'r') as f:
             data = json.load(f)
             AUTHORIZED_USERS = data.get('authorized_users', [])
             AUTHORIZED_GROUPS = data.get('authorized_groups', [])
             ADMINS = data.get('admins', [])
-            SUPER_ADMINS = data.get('super_admins', [])
-        logger.info("✅ Datos cargados correctamente")
     except FileNotFoundError:
-        logger.warning("📄 Archivo data.json no encontrado, usando valores por defecto")
-        save_data()
-    except Exception as e:
-        logger.error(f"❌ Error al cargar datos: {e}")
+        pass
 
 # Cargar datos al iniciar el bot
 load_data()
@@ -141,90 +117,28 @@ async def compress_video(input_file, output_file, user_id):
         '-threads', '0',  # Usar todos los hilos disponibles
         '-y', output_file
     ]
-    
-    logger.info(f"Ejecutando comando: {' '.join(command)}")
-    
     process = await asyncio.create_subprocess_exec(
         *command,
         stdout=subprocess.PIPE,
         stderr=subprocess.PIPE
     )
-    
-    stdout, stderr = await process.communicate()
-    
+    stdout, stderr = await process.communicate()  # Por si tiene error en la compresión
     if process.returncode != 0:
-        error_msg = stderr.decode() if stderr else "Error desconocido"
-        logger.error(f"‼️ Error en el proceso: {error_msg} ‼️")
-    
+        logger.error(f"‼️𝐄𝐫𝐫𝐨𝐫 𝐞𝐧 𝐞𝐥 𝐩𝐫𝐨𝐜𝐞𝐬𝐨: {stderr.decode()}‼️")
     return process.returncode
-
-# ===================== ENDPOINTS FASTAPI =====================
-
-@web_app.get("/")
-async def root():
-    return {
-        "status": "active", 
-        "service": "Telegram Video Compressor Bot",
-        "version": "3.0",
-        "endpoints": {
-            "root": "/",
-            "health": "/health",
-            "stats": "/stats",
-            "docs": "/docs"
-        }
-    }
-
-@web_app.get("/health")
-async def health_check():
-    return {
-        "status": "healthy",
-        "timestamp": time.time(),
-        "bot_status": "running" if app.is_initialized else "starting",
-        "authorized_users": len(AUTHORIZED_USERS),
-        "authorized_groups": len(AUTHORIZED_GROUPS)
-    }
-
-@web_app.get("/stats")
-async def get_stats():
-    return {
-        "users": {
-            "authorized": len(AUTHORIZED_USERS),
-            "admins": len(ADMINS),
-            "super_admins": len(SUPER_ADMINS)
-        },
-        "groups": {
-            "authorized": len(AUTHORIZED_GROUPS)
-        },
-        "quality_settings": {
-            "default": DEFAULT_QUALITY,
-            "custom_settings": len(current_calidad)
-        },
-        "storage": {
-            "max_video_size_gb": max_video_size / (1024**3),
-            "session_exists": os.path.exists("/app/session")
-        }
-    }
-
-@web_app.get("/ping")
-async def ping():
-    return {"message": "pong", "timestamp": time.time()}
-
-# ===================== COMANDOS DEL BOT =====================
-
+    
 # Comando de bienvenida
 @app.on_message(filters.command("start") & (filters.private | filters.group))
 async def start(client: Client, message: Message):
     if is_authorized(message.from_user.id) or is_authorized_group(message.chat.id):
         await message.reply_text(
-            "😄 Bienvenido a Compresor Video 🎬\n\n"
-            "Envía un video para comprimirlo o usa /help para ver todos los comandos disponibles."
+            "😄 Bienvenido a Compresor Video use /help para mas ayuda 📚"
         )
     else:
         await message.reply_text(
-            "⛔ No tienes acceso a este bot ⛔\n\n"
-            "Contacta con el administrador para solicitar acceso.",
+            "⛔𝐍𝐨 𝐩𝐨𝐬𝐞𝐞 𝐚𝐜𝐜𝐞𝐬𝐨⛔\n\n𝐇𝐚𝐛𝐥𝐞 𝐜𝐨𝐧 𝐞𝐥 𝐃𝐞𝐬𝐚𝐫𝐫𝐨𝐥𝐥𝐚𝐝𝐨𝐫.",
             reply_markup=InlineKeyboardMarkup([
-                [InlineKeyboardButton("👨‍💻 Desarrollador", url="https://t.me/Sasuke286")]
+                [InlineKeyboardButton("𝐃𝐞𝐬𝐚𝐫𝐫𝐨𝐥𝐥𝐚𝐝𝐨𝐫 👨‍💻", url="https://t.me/Sasuke286")]
             ])
         )
 
@@ -233,45 +147,44 @@ async def start(client: Client, message: Message):
 async def help(client: Client, message: Message):
     if is_authorized(message.from_user.id) or is_authorized_group(message.chat.id):
         help_text = """
-        **🤖 Comandos Disponibles:**
+        **🤖𝐂𝐨𝐦𝐚𝐧𝐝𝐨𝐬 𝐃𝐢𝐬𝐩𝐨𝐧𝐢𝐛𝐥𝐞𝐬🤖:**
 
-        **👤 Comandos de Usuario:**
-        - **/start**: Muestra mensaje de bienvenida
-        - **/help**: Muestra esta ayuda
-        - **/calidad**: Cambia calidad de compresión
-          Ej: `/calidad resolution=1280x720 crf=28 fps=30`
-        - **/id**: Obtiene ID de usuario/grupo
+        **👤𝐋𝐨𝐬 𝐝𝐞 𝐔𝐬𝐮𝐚𝐫𝐢𝐨👤:**
+        - **/start**: Muestra un mensaje de bienvenida.
+        - **/help**: Muestra esta lista de comandos.
+        - **/calidad**: Cambia la calidad de compresión del video. Uso: `/calidad resolution=740x480 crf=32 audio_bitrate=60k fps=28 preset=ultrafast codec=libx265`
+        - **/id**: Obtiene el ID de un usuario. Uso: `/id @username` (Solo Administradores)
 
-        **👨‍✈️ Comandos de Administrador:**
-        - **/add user_id**: Agrega usuario autorizado
-        - **/ban user_id**: Quita usuario autorizado
-        - **/listusers**: Lista usuarios autorizados
-        - **/grup group_id**: Agrega grupo autorizado
-        - **/bangrup group_id**: Quita grupo autorizado
-        - **/listgrup**: Lista grupos autorizados
-        - **/add_admins user_id**: Agrega administrador
-        - **/ban_admins user_id**: Quita administrador
-        - **/listadmins**: Lista administradores
-        - **/info mensaje**: Envía mensaje global
-        - **/max tamaño**: Establece límite de tamaño (ej: /max 2GB)
+        **👨‍✈️𝐋𝐨𝐬 𝐝𝐞 𝐚𝐝𝐦𝐢𝐧𝐢𝐬𝐭𝐫𝐚𝐝𝐨𝐫👨‍✈️:**
+        - **/add**: Agrega un usuario autorizado. Uso: `/add user_id`
+        - **/ban**: Quita un usuario autorizado. Uso: `/ban user_id`
+        - **/listusers**: Lista los usuarios autorizados.
+        - **/grup**: Agrega un grupo autorizado. Uso: `/grup group_id`
+        - **/bangrup**: Quita un grupo autorizado. Uso: `/bangrup group_id`
+        - **/listgrup**: Lista los grupos autorizados.
+        - **/add_admins**: Agrega un nuevo administrador. Uso: `/add_admins user_id` (Solo Administradores Supremos)
+        - **/ban_admins**: Quita un administrador. Uso: `/ban_admins user_id` (Solo Administradores Supremos)
+        - **/listadmins**: Lista los administradores.
+        - **/info**: Envia un mensaje a todos los usuarios y grupos autorizados. Uso: `/info [mensaje]`
+        - **/max**: Establece el límite de tamaño para los videos. Uso: `/max [tamaño en MB o GB]`
 
-        **🔧 Configuración de Calidad:**
-        - **resolution**: Ancho x Alto (ej: 1280x720)
-        - **crf**: Calidad (18-32, menor es mejor)
-        - **audio_bitrate**: Bitrate de audio (ej: 128k)
-        - **fps**: Cuadros por segundo (ej: 30)
-        - **preset**: ultrafast, fast, medium, slow
-        - **codec**: libx264 o libx265
+        **𝐂𝐚𝐥𝐢𝐝𝐚𝐝 𝐩𝐫𝐞𝐝𝐞𝐭𝐞𝐫𝐦𝐢𝐧𝐚𝐝𝐚📔:**
+        - resolution: 740x480
+        - crf: 32
+        - audio_bitrate: 60k
+        - fps: 28
+        - preset: ultrafast
+        - codec: libx265
 
-        **📖 Uso:**
-        Simplemente envía un video y el bot lo comprimirá automáticamente.
+        **𝐔𝐬𝐨 𝐝𝐞𝐥 𝐛𝐨𝐭📖:**
+        - Envía un video y el bot lo comprimirá con la calidad actual.
         """
         await message.reply_text(help_text)
     else:
         await message.reply_text(
-            "⛔ No tienes acceso ⛔",
+            "⛔𝐍𝐨 𝐩𝐨𝐬𝐞𝐞 𝐚𝐜𝐜𝐞𝐬𝐨⛔\n\n𝐇𝐚𝐛𝐥𝐞 𝐜𝐨𝐧 𝐞𝐥 𝐃𝐞𝐬𝐚𝐫𝐫𝐨𝐥𝐥𝐚𝐝𝐨𝐫.",
             reply_markup=InlineKeyboardMarkup([
-                [InlineKeyboardButton("👨‍💻 Desarrollador", url="https://t.me/Sasuke286")]
+                [InlineKeyboardButton("𝐃𝐞𝐬𝐚𝐫𝐫𝐨𝐥𝐥𝐚𝐝𝐨𝐫 👨‍💻", url="https://t.me/Sasuke286")]
             ])
         )
 
@@ -280,450 +193,436 @@ async def help(client: Client, message: Message):
 async def list_admins(client: Client, message: Message):
     if is_admin(message.from_user.id) or is_authorized(message.from_user.id) or is_authorized_group(message.chat.id):
         if ADMINS:
-            admin_list = "\n".join([f"👨‍💻 {admin}" for admin in ADMINS])
-            await message.reply_text(f"**📓 Lista de Administradores:**\n{admin_list}")
+            admin_list = "\n".join(map(str, ADMINS))
+            await message.reply_text(f"𝐋𝐢𝐬𝐭 𝐀𝐝𝐦𝐢𝐧𝐬 📓:\n{admin_list}")
         else:
-            await message.reply_text("⭕ No hay administradores registrados ⭕")
+            await message.reply_text("⭕𝐍𝐨 𝐡𝐚𝐲 𝐚𝐝𝐦𝐢𝐧⭕.")
     else:
-        await message.reply_text("⛔ Acceso denegado ⛔")
+        await message.reply_text(
+            "⛔𝐍𝐨 𝐩𝐨𝐬𝐞𝐞 𝐚𝐜𝐜𝐞𝐬𝐨⛔\n\n𝐇𝐚𝐛𝐥𝐞 𝐜𝐨𝐧 𝐞𝐥 𝐃𝐞𝐬𝐚𝐫𝐫𝐨𝐥𝐥𝐚𝐝𝐨𝐫.",
+            reply_markup=InlineKeyboardMarkup([
+                [InlineKeyboardButton("𝐃𝐞𝐬𝐚𝐫𝐫𝐨𝐥𝐥𝐚𝐝𝐨𝐫 👨‍💻", url="https://t.me/Sasuke286")]
+            ])
+        )
 
-# Comando para cambiar calidad
+
 @app.on_message(filters.command("calidad") & (filters.private | filters.group))
 async def set_calidad(client: Client, message: Message):
-    if is_authorized(message.from_user.id) or is_authorized_group(message.chat.id):
+    if is_admin(message.from_user.id) or is_authorized(message.from_user.id) or is_authorized_group(message.chat.id):
+        global current_calidad
         args = message.text.split()[1:]
-        
         if not args:
-            current = current_calidad.get(message.from_user.id, DEFAULT_QUALITY)
-            quality_text = "\n".join([f"**{k}**: {v}" for k, v in current.items()])
-            await message.reply_text(
-                f"**⚙️ Calidad Actual:**\n{quality_text}\n\n"
-                "Para cambiar: `/calidad resolution=1280x720 crf=28 audio_bitrate=128k fps=30 preset=fast codec=libx265`"
-            )
+            await message.reply_text("𝐔𝐬𝐨: /calidad resolution=740x480 crf=32 audio_bitrate=60k fps=28 preset=ultrafast codec=libx265")
             return
 
         user_quality = current_calidad.get(message.from_user.id, DEFAULT_QUALITY.copy())
-        errors = []
-        
         for arg in args:
-            if '=' not in arg:
-                errors.append(f"Formato incorrecto: {arg}")
-                continue
-                
-            key, value = arg.split('=', 1)
-            if key in user_quality:
-                user_quality[key] = value
-            else:
-                errors.append(f"Parámetro desconocido: {key}")
+            try:
+                key, value = arg.split('=')
+                if key in user_quality:
+                    user_quality[key] = value
+                else:
+                    await message.reply_text(f"⭕𝐏𝐚𝐫𝐚́𝐦𝐞𝐭𝐫𝐨 𝐝𝐞𝐬𝐜𝐨𝐧𝐨𝐜𝐢𝐝𝐨: {key}⭕")
+                    return
+            except ValueError:
+                await message.reply_text(f"⭕𝐄𝐫𝐫𝐨𝐫 𝐫𝐞𝐩𝐢𝐭𝐚𝐧𝐝𝐨 𝐩𝐚𝐫𝐚́𝐦𝐞𝐭𝐫𝐨: {arg}⭕")
+                return
 
-        if errors:
-            await message.reply_text(f"❌ Errores:\n" + "\n".join(errors))
-        else:
-            current_calidad[message.from_user.id] = user_quality
-            quality_text = "\n".join([f"**{k}**: {v}" for k, v in user_quality.items()])
-            await message.reply_text(f"✅ **Calidad actualizada:**\n{quality_text}")
+        current_calidad[message.from_user.id] = user_quality
+        await message.reply_text(f"‼️𝐂𝐚𝐥𝐢𝐝𝐚𝐝 𝐚𝐜𝐭𝐮𝐚𝐥: {current_calidad[message.from_user.id]}‼️")
     else:
-        await message.reply_text("⛔ Acceso denegado ⛔")
+        await message.reply_text(
+            "⛔𝐍𝐨 𝐩𝐨𝐬𝐞𝐞 𝐚𝐜𝐜𝐞𝐬𝐨⛔\n\n𝐇𝐚𝐛𝐥𝐞 𝐜𝐨𝐧 𝐞𝐥 𝐃𝐞𝐬𝐚𝐫𝐫𝐨𝐥𝐥𝐚𝐝𝐨𝐫.",
+            reply_markup=InlineKeyboardMarkup([
+                [InlineKeyboardButton("𝐃𝐞𝐬𝐚𝐫𝐫𝐨𝐥𝐥𝐚𝐝𝐨𝐫 👨‍💻", url="https://t.me/Sasuke286")]
+            ])
+        )
 
-# Comando para agregar usuario
+# Comando para agregar un usuario autorizado
 @app.on_message(filters.command("add") & (filters.private | filters.group))
 async def add_user(client: Client, message: Message):
-    if is_admin(message.from_user.id):
+    if is_admin(message.from_user.id) or is_authorized(message.from_user.id) or is_authorized_group(message.chat.id):
         args = message.text.split()[1:]
         if not args:
-            await message.reply_text("❌ Uso: /add user_id")
+            await message.reply_text("𝐔𝐬𝐨: /add user_id")
             return
 
-        results = []
         for user_id in args:
             try:
                 user_id = int(user_id)
                 if user_id not in AUTHORIZED_USERS:
                     AUTHORIZED_USERS.append(user_id)
                     save_data()
-                    results.append(f"✅ Usuario {user_id} agregado")
+                    await message.reply_text(f"✅𝐔𝐬𝐮𝐚𝐫𝐢𝐨 {user_id} 𝐚𝐠𝐠 𝐚 𝐥𝐚 𝐥𝐢𝐬𝐭𝐮𝐬𝐞𝐫✅.")
                 else:
-                    results.append(f"⚠️ Usuario {user_id} ya existe")
+                    await message.reply_text(f"‼️𝐔𝐬𝐮𝐚𝐫𝐢𝐨 {user_id} 𝐲𝐚 𝐞𝐬𝐭𝐚 𝐞𝐧 𝐥𝐚 𝐥𝐢𝐬𝐭𝐮𝐬𝐞𝐫‼️.")
             except ValueError:
-                results.append(f"❌ ID inválido: {user_id}")
-
-        await message.reply_text("\n".join(results))
+                await message.reply_text(f"⭕𝐈𝐃 𝐞𝐫𝐫𝐨𝐧𝐞𝐚: {user_id}⭕")
     else:
-        await message.reply_text("⛔ Solo administradores ⛔")
+        await message.reply_text(
+            "⛔𝐍𝐨 𝐩𝐨𝐬𝐞𝐞 𝐚𝐜𝐜𝐞𝐬𝐨⛔\n\n𝐇𝐚𝐛𝐥𝐞 𝐜𝐨𝐧 𝐞𝐥 𝐃𝐞𝐬𝐚𝐫𝐫𝐨𝐥𝐥𝐚𝐝𝐨𝐫.",
+            reply_markup=InlineKeyboardMarkup([
+                [InlineKeyboardButton("𝐃𝐞𝐬𝐚𝐫𝐫𝐨𝐥𝐥𝐚𝐝𝐨𝐫 👨‍💻", url="https://t.me/Sasuke286")]
+            ])
+        )
 
-# Comando para quitar usuario
+# Comando para quitar un usuario autorizado
 @app.on_message(filters.command("ban") & (filters.private | filters.group))
 async def ban_user(client: Client, message: Message):
-    if is_admin(message.from_user.id):
+    if is_admin(message.from_user.id) or is_authorized(message.from_user.id) or is_authorized_group(message.chat.id):
         args = message.text.split()[1:]
         if not args:
-            await message.reply_text("❌ Uso: /ban user_id")
+            await message.reply_text("𝐔𝐬𝐨: /ban user_id")
             return
 
-        results = []
         for user_id in args:
             try:
                 user_id = int(user_id)
                 if user_id in AUTHORIZED_USERS:
                     AUTHORIZED_USERS.remove(user_id)
                     save_data()
-                    results.append(f"✅ Usuario {user_id} eliminado")
+                    await message.reply_text(f"✅𝐔𝐬𝐮𝐚𝐫𝐢𝐨 {user_id} 𝐫𝐞𝐦𝐨𝐯𝐢𝐝𝐨 𝐝𝐞 𝐥𝐚 𝐥𝐢𝐬𝐭𝐮𝐬𝐞𝐫✅.")
                 else:
-                    results.append(f"⚠️ Usuario {user_id} no encontrado")
+                    await message.reply_text(f"‼️𝐔𝐬𝐮𝐚𝐫𝐢𝐨 {user_id} 𝐧𝐨 𝐞𝐬𝐭𝐚 𝐞𝐧 𝐥𝐚 𝐥𝐢𝐬𝐭𝐮𝐬𝐞𝐫‼️.")
             except ValueError:
-                results.append(f"❌ ID inválido: {user_id}")
-
-        await message.reply_text("\n".join(results))
+                await message.reply_text(f"⭕𝐈𝐃 𝐞𝐫𝐫𝐨𝐧𝐞𝐚: {user_id}⭕")
     else:
-        await message.reply_text("⛔ Solo administradores ⛔")
+        await message.reply_text(
+            "⛔𝐍𝐨 𝐩𝐨𝐬𝐞𝐞 𝐚𝐜𝐜𝐞𝐬𝐨⛔\n\n𝐇𝐚𝐛𝐥𝐞 𝐜𝐨𝐧 𝐞𝐥 𝐃𝐞𝐬𝐚𝐫𝐫𝐨𝐥𝐥𝐚𝐝𝐨𝐫.",
+            reply_markup=InlineKeyboardMarkup([
+                [InlineKeyboardButton("𝐃𝐞𝐬𝐚𝐫𝐫𝐨𝐥𝐥𝐚𝐝𝐨𝐫 👨‍💻", url="https://t.me/Sasuke286")]
+            ])
+        )
 
-# Comando para listar usuarios
+# Comando para listar usuarios autorizados
 @app.on_message(filters.command("listusers") & (filters.private | filters.group))
 async def list_users(client: Client, message: Message):
-    if is_admin(message.from_user.id):
+    if is_admin(message.from_user.id) or is_authorized(message.from_user.id) or is_authorized_group(message.chat.id):
         if AUTHORIZED_USERS:
-            user_list = "\n".join([f"👤 {uid}" for uid in AUTHORIZED_USERS])
-            await message.reply_text(f"**📘 Usuarios Autorizados ({len(AUTHORIZED_USERS)}):**\n{user_list}")
+            user_list = "\n".join(map(str, AUTHORIZED_USERS))
+            await message.reply_text(f"𝐋𝐢𝐬𝐭 𝐔𝐬𝐞𝐫 📘:\n{user_list}")
         else:
-            await message.reply_text("📭 No hay usuarios autorizados")
+            await message.reply_text("❌𝐍𝐨 𝐡𝐚𝐲 𝐮𝐬𝐮𝐚𝐫𝐢𝐨𝐬 𝐚𝐮𝐭𝐨𝐫𝐢𝐳𝐚𝐝𝐨𝐬❌.")
     else:
-        await message.reply_text("⛔ Solo administradores ⛔")
+        await message.reply_text(
+            "⛔𝐍𝐨 𝐩𝐨𝐬𝐞𝐞 𝐚𝐜𝐜𝐞𝐬𝐨⛔\n\n𝐇𝐚𝐛𝐥𝐞 𝐜𝐨𝐧 𝐞𝐥 𝐃𝐞𝐬𝐚𝐫𝐫𝐨𝐥𝐥𝐚𝐝𝐨𝐫.",
+            reply_markup=InlineKeyboardMarkup([
+                [InlineKeyboardButton("𝐃𝐞𝐬𝐚𝐫𝐫𝐨𝐥𝐥𝐚𝐝𝐨𝐫 👨‍💻", url="https://t.me/Sasuke286")]
+            ])
+        )
 
-# Comando para agregar grupo
+# Comando para agregar un grupo autorizado
 @app.on_message(filters.command("grup") & (filters.private | filters.group))
 async def add_group(client: Client, message: Message):
-    if is_admin(message.from_user.id):
+    if is_admin(message.from_user.id) or is_authorized(message.from_user.id) or is_authorized_group(message.chat.id):
         args = message.text.split()[1:]
         if not args:
-            await message.reply_text("❌ Uso: /grup group_id")
+            await message.reply_text("𝐔𝐬𝐨: /grup group_id")
             return
 
-        results = []
         for group_id in args:
             try:
                 group_id = int(group_id)
                 if group_id not in AUTHORIZED_GROUPS:
                     AUTHORIZED_GROUPS.append(group_id)
                     save_data()
-                    results.append(f"✅ Grupo {group_id} agregado")
+                    await message.reply_text(f"✅𝐆𝐫𝐮𝐩𝐨 {group_id} 𝐚𝐠𝐠 𝐚 𝐥𝐚 𝐥𝐢𝐬𝐭 𝐠𝐫𝐮𝐩✅")
                 else:
-                    results.append(f"⚠️ Grupo {group_id} ya existe")
+                    await message.reply_text(f"‼️𝐆𝐫𝐮𝐩𝐨 {group_id} 𝐲𝐚 𝐞𝐬𝐭𝐚 𝐞𝐧 𝐥𝐚 𝐥𝐢𝐬𝐭 𝐠𝐫𝐮𝐩‼️.")
             except ValueError:
-                results.append(f"❌ ID inválido: {group_id}")
-
-        await message.reply_text("\n".join(results))
+                await message.reply_text(f"⭕𝐈𝐃 𝐞𝐫𝐫𝐨𝐧𝐞𝐚: {group_id}⭕")
     else:
-        await message.reply_text("⛔ Solo administradores ⛔")
+        await message.reply_text(
+            "⛔𝐍𝐨 𝐩𝐨𝐬𝐞𝐞 𝐚𝐜𝐜𝐞𝐬𝐨⛔\n\n𝐇𝐚𝐛𝐥𝐞 𝐜𝐨𝐧 𝐞𝐥 𝐃𝐞𝐬𝐚𝐫𝐫𝐨𝐥𝐥𝐚𝐝𝐨𝐫.",
+            reply_markup=InlineKeyboardMarkup([
+                [InlineKeyboardButton("𝐃𝐞𝐬𝐚𝐫𝐫𝐨𝐥𝐥𝐚𝐝𝐨𝐫 👨‍💻", url="https://t.me/Sasuke286")]
+            ])
+        )
 
-# Comando para quitar grupo
+# Comando para quitar un grupo autorizado
 @app.on_message(filters.command("bangrup") & (filters.private | filters.group))
 async def ban_group(client: Client, message: Message):
-    if is_admin(message.from_user.id):
+    if is_admin(message.from_user.id) or is_authorized(message.from_user.id) or is_authorized_group(message.chat.id):
         args = message.text.split()[1:]
         if not args:
-            await message.reply_text("❌ Uso: /bangrup group_id")
+            await message.reply_text("𝐔𝐬𝐨: /bangrup group_id")
             return
 
-        results = []
         for group_id in args:
             try:
                 group_id = int(group_id)
                 if group_id in AUTHORIZED_GROUPS:
                     AUTHORIZED_GROUPS.remove(group_id)
                     save_data()
-                    results.append(f"✅ Grupo {group_id} eliminado")
+                    await message.reply_text(f"✅𝐆𝐫𝐮𝐩𝐨 {group_id} 𝐫𝐞𝐦𝐨𝐯𝐢𝐝𝐨 𝐝𝐞 𝐥𝐚 𝐥𝐢𝐬𝐭 𝐠𝐫𝐮𝐩✅.")
                 else:
-                    results.append(f"⚠️ Grupo {group_id} no encontrado")
+                    await message.reply_text(f"‼️𝐆𝐫𝐮𝐩𝐨 {group_id} 𝐧𝐨 𝐞𝐬𝐭𝐚 𝐞𝐧 𝐥𝐚 𝐥𝐢𝐬𝐭 𝐠𝐫𝐮𝐩‼️.")
             except ValueError:
-                results.append(f"❌ ID inválido: {group_id}")
-
-        await message.reply_text("\n".join(results))
+                await message.reply_text(f"⭕𝐈𝐃 𝐞𝐫𝐫𝐨𝐧𝐞𝐚: {group_id}⭕")
     else:
-        await message.reply_text("⛔ Solo administradores ⛔")
+        await message.reply_text(
+            "⛔𝐍𝐨 𝐩𝐨𝐬𝐞𝐞 𝐚𝐜𝐜𝐞𝐬𝐨⛔\n\n𝐇𝐚𝐛𝐥𝐞 𝐜𝐨𝐧 𝐞𝐥 𝐃𝐞𝐬𝐚𝐫𝐫𝐨𝐥𝐥𝐚𝐝𝐨𝐫.",
+            reply_markup=InlineKeyboardMarkup([
+                [InlineKeyboardButton("𝐃𝐞𝐬𝐚𝐫𝐫𝐨𝐥𝐥𝐚𝐝𝐨𝐫👨‍💻", url="https://t.me/Sasuke286")]
+            ])
+        )
 
-# Comando para listar grupos
+# Comando para listar grupos autorizados
 @app.on_message(filters.command("listgrup") & (filters.private | filters.group))
 async def list_groups(client: Client, message: Message):
-    if is_admin(message.from_user.id):
+    if is_admin(message.from_user.id) or is_authorized(message.from_user.id) or is_authorized_group(message.chat.id):
         if AUTHORIZED_GROUPS:
-            group_list = "\n".join([f"👥 {gid}" for gid in AUTHORIZED_GROUPS])
-            await message.reply_text(f"**📗 Grupos Autorizados ({len(AUTHORIZED_GROUPS)}):**\n{group_list}")
+            group_list = "\n".join(map(str, AUTHORIZED_GROUPS))
+            await message.reply_text(f"𝐋𝐢𝐬𝐭 𝐠𝐫𝐮𝐩 📗:\n{group_list}")
         else:
-            await message.reply_text("📭 No hay grupos autorizados")
+            await message.reply_text("❌𝐍𝐨 𝐡𝐚𝐲 𝐠𝐫𝐮𝐩𝐨𝐬 𝐚𝐮𝐭𝐨𝐫𝐢𝐳𝐚𝐝𝐨𝐬❌.")
     else:
-        await message.reply_text("⛔ Solo administradores ⛔")
+        await message.reply_text(
+            "⛔𝐍𝐨 𝐩𝐨𝐬𝐞𝐞 𝐚𝐜𝐜??𝐬𝐨⛔\n\n𝐇𝐚𝐛𝐥𝐞 𝐜𝐨𝐧 𝐞𝐥 𝐃𝐞𝐬𝐚𝐫𝐫𝐨𝐥𝐥𝐚𝐝𝐨𝐫.",
+            reply_markup=InlineKeyboardMarkup([
+                [InlineKeyboardButton("𝐃𝐞𝐬𝐚𝐫𝐫𝐨𝐥𝐥𝐚𝐝𝐨𝐫👨‍💻", url="https://t.me/Sasuke286")]
+            ])
+        )
 
-# Comando para agregar administrador
+# Comando para agregar un administrador
 @app.on_message(filters.command("add_admins") & filters.private)
 async def add_admin(client: Client, message: Message):
     if is_super_admin(message.from_user.id):
         args = message.text.split()[1:]
         if not args:
-            await message.reply_text("❌ Uso: /add_admins user_id")
+            await message.reply_text("𝐔𝐬𝐞: /add_admins user_id")
             return
 
-        results = []
         for user_id in args:
             try:
                 user_id = int(user_id)
                 if user_id not in ADMINS and user_id not in SUPER_ADMINS:
                     ADMINS.append(user_id)
                     save_data()
-                    results.append(f"✅ Admin {user_id} agregado")
+                    await message.reply_text(f"✅𝐔𝐬𝐮𝐚𝐫𝐢𝐨 {user_id} 𝐚𝐠𝐠 𝐚 𝐥𝐚 𝐥𝐢𝐬𝐭 𝐚𝐝𝐦𝐢𝐧𝐬✅.")
                 else:
-                    results.append(f"⚠️ Usuario {user_id} ya es admin")
+                    await message.reply_text(f"‼️𝐔𝐬𝐮𝐚𝐫𝐢𝐨 {user_id} 𝐲𝐚 𝐞𝐬 𝐚𝐝𝐦𝐢𝐧‼️.")
             except ValueError:
-                results.append(f"❌ ID inválido: {user_id}")
-
-        await message.reply_text("\n".join(results))
+                await message.reply_text(f"⭕𝐈𝐃 𝐞𝐫𝐫𝐨𝐧𝐞𝐚: {user_id}⭕")
     else:
-        await message.reply_text("⛔ Solo super administradores ⛔")
+        await message.reply_text(
+            "⛔𝐍𝐨 𝐩𝐨𝐬𝐞𝐞 𝐚𝐜𝐜𝐞𝐬𝐨⛔\n\n𝐇𝐚𝐛𝐥𝐞 𝐜𝐨𝐧 𝐞𝐥 𝐃𝐞𝐬𝐚𝐫𝐫𝐨𝐥𝐥𝐚𝐝𝐨𝐫.",
+            reply_markup=InlineKeyboardMarkup([
+                [InlineKeyboardButton("𝐃𝐞𝐬𝐚𝐫𝐫𝐨𝐥𝐥𝐚𝐝𝐨𝐫 👨‍💻", url="https://t.me/Sasuke286")]
+            ])
+        )
 
-# Comando para quitar administrador
+# Comando para quitar un administrador
 @app.on_message(filters.command("ban_admins") & filters.private)
 async def ban_admin(client: Client, message: Message):
     if is_super_admin(message.from_user.id):
         args = message.text.split()[1:]
         if not args:
-            await message.reply_text("❌ Uso: /ban_admins user_id")
+            await message.reply_text("𝐔𝐬𝐞: /ban_admins user_id")
             return
 
-        results = []
         for user_id in args:
             try:
                 user_id = int(user_id)
                 if user_id in ADMINS and user_id not in SUPER_ADMINS:
                     ADMINS.remove(user_id)
                     save_data()
-                    results.append(f"✅ Admin {user_id} eliminado")
+                    await message.reply_text(f"✅𝐔𝐬𝐮𝐚𝐫𝐢𝐨 {user_id} 𝐫𝐞𝐦𝐨𝐯𝐢𝐝𝐨 𝐝𝐞 𝐥𝐚 𝐥𝐢𝐬𝐭 𝐚𝐝𝐦𝐢𝐧𝐬✅.")
                 else:
-                    results.append(f"⚠️ Usuario {user_id} no es admin o es super admin")
+                    await message.reply_text(f"‼️𝐔𝐬𝐮𝐚𝐫𝐢𝐨 {user_id} 𝐧𝐨 𝐞𝐬 𝐚𝐝𝐦𝐢𝐧‼️.")
             except ValueError:
-                results.append(f"❌ ID inválido: {user_id}")
-
-        await message.reply_text("\n".join(results))
+                await message.reply_text(f"⭕𝐈𝐃 𝐞𝐫𝐫𝐨𝐧𝐞𝐚: {user_id}⭕")
     else:
-        await message.reply_text("⛔ Solo super administradores ⛔")
+        await message.reply_text(
+            "⛔𝐍𝐨 𝐩𝐨𝐬𝐞𝐞 𝐚𝐜𝐜𝐞𝐬𝐨⛔\n\n𝐇𝐚𝐛𝐥𝐞 𝐜𝐨𝐧 𝐞𝐥 𝐃𝐞𝐬𝐚𝐫𝐫𝐨𝐥𝐥𝐚𝐝𝐨𝐫",
+            reply_markup=InlineKeyboardMarkup([
+                [InlineKeyboardButton("𝐃𝐞𝐬𝐚𝐫𝐫𝐨𝐥𝐥𝐚𝐝𝐨𝐫 👨‍💻", url="https://t.me/Sasuke286")]
+            ])
+        )
 
-# Comando para obtener ID
+# Comando para obtener el ID de un usuario
 @app.on_message(filters.command("id") & (filters.private | filters.group))
 async def get_id(client: Client, message: Message):
     if is_admin(message.from_user.id) or is_authorized(message.from_user.id) or is_authorized_group(message.chat.id):
-        await message.reply_text(
-            f"**👤 Tu ID:** `{message.from_user.id}`\n"
-            f"**👥 Chat ID:** `{message.chat.id}`"
-        )
+        if len(message.command) == 1:
+            await message.reply_text(f"𝐓𝐮 𝐈𝐃: {message.from_user.id}")
+        else:
+            username = message.command[1]
+            user = await client.get_users(username)
+            await message.reply_text(f"𝐈𝐃 𝐝𝐞 @{user.username}: {user.id}")
     else:
-        await message.reply_text("⛔ Acceso denegado ⛔")
+        await message.reply_text(
+            "⛔𝐍𝐨 𝐩𝐨𝐬𝐞𝐞 𝐚𝐜𝐜𝐞𝐬𝐨⛔\n\n𝐇𝐚𝐛𝐥𝐞 𝐜𝐨𝐧 𝐞𝐥 𝐃𝐞𝐬𝐚𝐫𝐫𝐨𝐥𝐥𝐚𝐝𝐨𝐫.",
+            reply_markup=InlineKeyboardMarkup([
+                [InlineKeyboardButton("𝐃𝐞𝐬𝐚𝐫𝐫𝐨𝐥𝐥𝐚𝐝𝐨𝐫 👨‍💻", url="https://t.me/Sasuke286")]
+            ])
+        )
 
-# Comando para enviar mensaje global
+# Comando para Enviar un Mensaje a Todos los Usuarios y Grupos Autorizados
 @app.on_message(filters.command("info") & filters.private)
 async def send_info(client: Client, message: Message):
     if is_admin(message.from_user.id):
         args = message.text.split(None, 1)
         if len(args) == 1:
-            await message.reply_text("❌ Uso: /info mensaje")
+            await message.reply_text("𝐔𝐬𝐞: /info [mensaje]")
             return
 
         info_message = args[1]
-        sent_count = 0
-        error_count = 0
 
-        # Enviar a usuarios
+        # Enviar mensaje a todos los usuarios autorizados
         for user_id in AUTHORIZED_USERS:
             try:
-                await client.send_message(user_id, f"📢 **Anuncio Global:**\n\n{info_message}")
-                sent_count += 1
-                await asyncio.sleep(0.1)  # Pequeña pausa para evitar flood
+                await client.send_message(user_id, info_message)
             except Exception as e:
-                logger.error(f"Error enviando a usuario {user_id}: {e}")
-                error_count += 1
+                logger.error(f"⭕𝐄𝐫𝐫𝐨𝐫 𝐚𝐥 𝐞𝐧𝐯𝐢𝐚𝐫 𝐦𝐞𝐧𝐬𝐚𝐣𝐞 𝐚 𝐮𝐬𝐮𝐚𝐫𝐢𝐨 {user_id}: {e}⭕")
 
-        # Enviar a grupos
+        # Enviar mensaje a todos los grupos autorizados
         for group_id in AUTHORIZED_GROUPS:
             try:
-                await client.send_message(group_id, f"📢 **Anuncio Global:**\n\n{info_message}")
-                sent_count += 1
-                await asyncio.sleep(0.1)
+                await client.send_message(group_id, info_message)
             except Exception as e:
-                logger.error(f"Error enviando a grupo {group_id}: {e}")
-                error_count += 1
+                logger.error(f"⭕𝐄𝐫𝐫𝐨𝐫 𝐚𝐥 𝐞𝐧𝐯𝐢𝐚𝐫 𝐦𝐞𝐧𝐬𝐚𝐣𝐞 𝐚 𝐠𝐫𝐮𝐩𝐨 {group_id}: {e}⭕")
 
-        await message.reply_text(
-            f"✅ Mensaje enviado:\n"
-            f"• ✅ Éxitos: {sent_count}\n"
-            f"• ❌ Fallos: {error_count}"
-        )
+        await message.reply_text("✅𝐌𝐞𝐧𝐬𝐚𝐣𝐞 𝐠𝐥𝐨𝐛𝐚𝐥 𝐞𝐧𝐯𝐢𝐚𝐝𝐨 𝐜𝐨𝐫𝐫𝐞𝐜𝐭𝐚𝐦𝐞𝐧𝐭𝐞✅.")
     else:
-        await message.reply_text("⛔ Solo administradores ⛔")
+        await message.reply_text(
+            "⛔𝐍𝐨 𝐩𝐨𝐬𝐞𝐞 𝐚𝐜𝐜𝐞𝐬𝐨⛔\n\n𝐇𝐚𝐛𝐥𝐞 𝐜𝐨𝐧 𝐞𝐥 𝐃𝐞𝐬𝐚𝐫𝐫𝐨𝐥𝐥𝐚𝐝𝐨𝐫.",
+            reply_markup=InlineKeyboardMarkup([
+                [InlineKeyboardButton("𝐃𝐞𝐬𝐚𝐫𝐫𝐨𝐥𝐥𝐚𝐝𝐨𝐫 👨‍💻", url="https://t.me/Sasuke286")]
+            ])
+        )
 
-# Comando para cambiar límite de tamaño
+# Comando para cambiar el límite de tamaño de video
 @app.on_message(filters.command("max") & filters.private)
 async def set_max_size(client: Client, message: Message):
     if is_admin(message.from_user.id):
-        global max_video_size
         args = message.text.split(None, 1)
         if len(args) == 1:
-            current_gb = max_video_size / (1024 * 1024 * 1024)
-            await message.reply_text(f"📏 **Límite actual:** {current_gb:.2f} GB\n\nUso: /max 2GB o /max 500MB")
+            await message.reply_text("𝐔𝐬𝐞: /max [tamaño en MB o GB]")
             return
 
-        size = args[1].upper().strip()
-        try:
-            if size.endswith("GB"):
-                size_gb = float(size[:-2])
-                max_video_size = int(size_gb * 1024 * 1024 * 1024)
-                await message.reply_text(f"✅ Límite cambiado a {size_gb} GB")
-            elif size.endswith("MB"):
-                size_mb = float(size[:-2])
-                max_video_size = int(size_mb * 1024 * 1024)
-                await message.reply_text(f"✅ Límite cambiado a {size_mb} MB")
-            else:
-                await message.reply_text("❌ Formato incorrecto. Usa MB o GB")
-        except ValueError:
-            await message.reply_text("❌ Número inválido")
+        size = args[1].upper()
+        if size.endswith("GB"):
+            try:
+                size_gb = int(size[:-2])
+                max_video_size = size_gb * 1024 * 1024 * 1024
+            except ValueError:
+                await message.reply_text("❌𝐄𝐫𝐫𝐨𝐫 𝐮𝐬𝐞 𝐮𝐧𝐚 𝐜𝐢𝐟𝐫𝐚 𝐲 𝐝𝐞𝐬𝐩𝐮𝐞𝐬 'GB'❌")
+                return
+        elif size.endswith("MB"):
+            try:
+                size_mb = int(size[:-2])
+                max_video_size = size_mb * 1024 * 1024
+            except ValueError:
+                await message.reply_text("❌𝐄𝐫𝐫𝐨𝐫 𝐮𝐬𝐞 𝐮𝐧𝐚 𝐜𝐢𝐟𝐫𝐚 𝐲 𝐝𝐞𝐬𝐩𝐮𝐞𝐬 'MB'❌")
+                return
+        else:
+            await message.reply_text("❌𝐄𝐫𝐫𝐨𝐫 𝐮𝐬𝐞 𝐮𝐧𝐚 𝐜𝐢𝐟𝐫𝐚 𝐲 𝐝𝐞𝐬𝐩𝐮𝐞𝐬 'MB' 𝐨 'GB'❌")
+            return
+
+        await message.reply_text(f"✅𝐋𝐢𝐦𝐢𝐭𝐞 𝐜𝐚𝐦𝐛𝐢𝐚𝐝𝐨 𝐚 {size}✅.")
     else:
-        await message.reply_text("⛔ Solo administradores ⛔")
+        await message.reply_text(
+            "⛔𝐍𝐨 𝐩𝐨𝐬𝐞𝐞 𝐚𝐜𝐜𝐞𝐬𝐨⛔\n\n𝐇𝐚𝐛𝐥𝐞 𝐜𝐨𝐧 𝐞𝐥 𝐃𝐞𝐬𝐚𝐫𝐫𝐨𝐥𝐥𝐚𝐝𝐨𝐫.",
+            reply_markup=InlineKeyboardMarkup([
+                [InlineKeyboardButton("𝐃𝐞𝐬𝐚𝐫𝐫𝐨𝐥𝐥𝐚𝐝𝐨𝐫 👨‍💻", url="https://t.me/Sasuke286")]
+            ])
+        )
 
 # Manejador de videos
 @app.on_message(filters.video & (filters.private | filters.group))
 async def handle_video(client: Client, message: Message):
-    if not (is_authorized(message.from_user.id) or is_authorized_group(message.chat.id)):
-        await message.reply_text("⛔ No autorizado ⛔")
-        return
+    if is_admin(message.from_user.id) or is_authorized(message.from_user.id) or is_authorized_group(message.chat.id):
+        await message.reply_text("📤𝐃𝐞𝐬𝐜𝐚𝐫𝐠𝐚𝐧𝐝𝐨 𝐕𝐢𝐝𝐞𝐨📥")
 
-    # Verificar tamaño del video
-    if message.video.file_size > max_video_size:
-        max_gb = max_video_size / (1024 * 1024 * 1024)
-        await message.reply_text(f"❌ Video demasiado grande. Máximo: {max_gb:.1f} GB")
-        return
+        # Extraer el nombre del archivo original
+        file_name = message.video.file_name
+        if not file_name:
+            file_name = f"{message.video.file_id}.mkv"  # Usar el file_id como nombre por defecto si no hay nombre
+        else:
+             # Cambiar la extensión del archivo a .mkv
+             base_name, _ = os.path.splitext(file_name)
+             file_name = f"{base_name}.mkv"
 
-    await message.reply_text("📥 Descargando video...")
-
-    # Preparar nombres de archivo
-    file_name = message.video.file_name or f"{message.video.file_id}.mp4"
-    base_name = os.path.splitext(file_name)[0]
-    input_file = f"/app/downloads/{base_name}_input.mp4"
-    output_file = f"/app/compressed/{base_name}_compressed.mkv"
-
-    # Crear directorios si no existen
-    os.makedirs("/app/downloads", exist_ok=True)
-    os.makedirs("/app/compressed", exist_ok=True)
-
-    try:
-        # Descargar video
-        download_msg = await message.reply_text("⬇️ Descargando... 0%")
-        last_progress = 0
-        
-        def progress(current, total):
-            nonlocal last_progress
-            progress_percent = (current / total) * 100
-            if progress_percent - last_progress >= 10:  # Actualizar cada 10%
-                asyncio.create_task(download_msg.edit_text(f"⬇️ Descargando... {int(progress_percent)}%"))
-                last_progress = progress_percent
-
-        await message.download(file_name=input_file, progress=progress)
-        await download_msg.edit_text("✅ Descarga completada\n⚙️ Comprimiendo video...")
-
-        # Comprimir video
-        start_time = time.time()
-        return_code = await compress_video(input_file, output_file, message.from_user.id)
-        processing_time = time.time() - start_time
-
-        if return_code != 0:
-            await message.reply_text("❌ Error al comprimir el video")
+        # Descargar el video
+        input_file = f"downloads/{file_name}"
+        os.makedirs("downloads", exist_ok=True)
+        try:
+            await message.download(file_name=input_file)
+        except Exception as e:
+            logger.error(f"⭕𝐄𝐫𝐫𝐨𝐫 𝐚𝐥 𝐝𝐞𝐬𝐜𝐚𝐫𝐠𝐚𝐫 𝐞𝐥 𝐯𝐢𝐝𝐞𝐨: {e}⭕")
+            await message.reply_text("⭕𝐄𝐫𝐫𝐨𝐫 𝐚𝐥 𝐝𝐞𝐬𝐜𝐚𝐫𝐠𝐚𝐫 𝐞𝐥 𝐯𝐢𝐝𝐞𝐨⭕.")
             return
 
-        # Calcular estadísticas
+        # Obtener el tamaño del video original
         original_size = os.path.getsize(input_file)
-        compressed_size = os.path.getsize(output_file)
-        compression_ratio = (original_size - compressed_size) / original_size * 100
 
-        # Enviar video comprimido
-        await message.reply_text("📤 Subiendo video comprimido...")
-        
-        caption = (
-            f"✅ **Video Comprimido**\n\n"
-            f"📊 **Estadísticas:**\n"
-            f"• 📏 Original: {original_size / (1024*1024):.2f} MB\n"
-            f"• 📏 Comprimido: {compressed_size / (1024*1024):.2f} MB\n"
-            f"• 📉 Compresión: {compression_ratio:.1f}%\n"
-            f"• ⏱️ Tiempo: {processing_time:.1f}s\n"
-            f"• 🎬 Duración: {format_time(message.video.duration)}"
-        )
+        # Verificar si el video excede el límite de tamaño
+        if original_size > max_video_size:
+            await message.reply_text(f"⛔𝐄𝐬𝐭𝐞 𝐯𝐢𝐝𝐞𝐨 𝐞𝐱𝐞𝐝𝐞 𝐞𝐥 𝐥𝐢𝐦𝐢??𝐞 𝐝𝐞 {max_video_size / (1024 * 1024 * 1024):.2f}𝐌𝐁⛔")
+            os.remove(input_file)
+            return
 
-        await client.send_video(
-            chat_id=message.chat.id,
-            video=output_file,
-            caption=caption,
-            duration=message.video.duration,
-            thumb=message.video.thumbs[0].file_id if message.video.thumbs else None
-        )
+        # Comprimir el video
+        output_file = f"compressed/{file_name}"
+        os.makedirs("compressed", exist_ok=True)
+        start_time = time.time()
+        await message.reply_text("𝐂𝐨𝐧𝐯𝐢𝐫𝐭𝐢𝐞𝐧𝐝𝐨 𝐕𝐢𝐝𝐞𝐨📹")
+        returncode = await compress_video(input_file, output_file, message.from_user.id)
+        end_time = time.time()
 
-    except Exception as e:
-        logger.error(f"Error procesando video: {e}")
-        await message.reply_text(f"❌ Error: {str(e)}")
-    finally:
-        # Limpiar archivos temporales
-        try:
-            if os.path.exists(input_file):
+        if returncode != 0:
+            await message.reply_text("⭕𝐄𝐫𝐫𝐨𝐫 𝐚𝐥 𝐜𝐨𝐧𝐯𝐞𝐫𝐭𝐢𝐫⭕.")
+        else:
+            # Obtener el tamaño del video procesado
+            processed_size = os.path.getsize(output_file)
+            processing_time = end_time - start_time
+            video_duration = message.video.duration
+
+            # Formatear los tiempos
+            processing_time_formatted = format_time(processing_time)
+            video_duration_formatted = format_time(video_duration)
+
+            # Crear la descripción
+            description = f"""
+            ꧁༺ 𝙋𝙧𝙤𝙘𝙚𝙨𝙤 𝙩𝙚𝙧𝙢𝙞𝙣𝙖𝙙𝙤 𝙘𝙤𝙧𝙧𝙚𝙘𝙩𝙖𝙢𝙚𝙣𝙩𝙚 ༻꧂\n
+×͡× 𝐏𝐞𝐬𝐨 𝐨𝐫𝐢𝐠𝐢𝐧𝐚𝐥: {original_size / (1024 * 1024):.2f} MB
+×͜× 𝐏𝐞𝐬𝐨 𝐩𝐫𝐨𝐜𝐞𝐬𝐚𝐝𝐨: {processed_size / (1024 * 1024):.2f} MB
+✯ 𝐓𝐢𝐞𝐦𝐩𝐨 𝐝𝐞 𝐩𝐫𝐨𝐜𝐞𝐬𝐚𝐦𝐢𝐞𝐧𝐭𝐨: {processing_time_formatted}
+𖤍 𝐓𝐢𝐞𝐦𝐩𝐨 𝐝𝐞𝐥 𝐯𝐢𝐝𝐞𝐨: {video_duration_formatted}
+♠ ¡𝐐𝐮𝐞 𝐥𝐨 𝐝𝐢𝐬𝐟𝐫𝐮𝐭𝐞𝐬!♣
+            """
+            # Subir el video comprimido
+            try:
+                await client.send_video(message.chat.id, output_file, caption=description)
+            except Exception as e:
+                logger.error(f"⭕𝐄𝐫𝐫𝐨𝐫 𝐚𝐥 𝐬𝐮𝐛𝐢𝐫 𝐞𝐥 𝐯𝐢𝐝𝐞𝐨: {e}⭕")
+                await message.reply_text("⭕𝐄𝐫𝐫𝐨𝐫 𝐚𝐥 𝐬𝐮𝐛𝐢𝐫 𝐞𝐥 𝐕𝐢𝐝𝐞𝐨⭕.")
+            finally:
                 os.remove(input_file)
-            if os.path.exists(output_file):
                 os.remove(output_file)
-        except:
-            pass
-
-# Comando about
+    else:
+        await message.reply_text(
+            "⛔𝐍𝐨 𝐩𝐨𝐬𝐞𝐞 𝐚𝐜𝐜𝐞𝐬𝐨⛔\n\n𝐇𝐚𝐛𝐥𝐞 𝐜𝐨𝐧 𝐞𝐥 𝐃𝐞𝐬𝐚𝐫𝐫𝐨𝐥𝐥𝐚𝐝𝐨𝐫.",
+            reply_markup=InlineKeyboardMarkup([
+                [InlineKeyboardButton("𝐃𝐞𝐬𝐚𝐫𝐫𝐨𝐥𝐥𝐚𝐝𝐨𝐫 👨‍💻", url="https://t.me/Sasuke286")]
+            ])
+        )
+        
+# Comando para mostrar información del bot
 @app.on_message(filters.command("about") & (filters.private | filters.group))
 async def about(client: Client, message: Message):
-    about_text = (
-        "🤖 **Video Compressor Bot**\n\n"
-        "• 📱 **Versión:** 3.0\n"
-        "• 👨‍💻 **Creador:** @Sasuke286\n"
-        "• 🛠️ **Funciones:** Compresión de videos con FFmpeg\n"
-        "• 🔧 **Soporte:** Contacta al desarrollador\n\n"
-        "¡Gracias por usar el bot! 🎬"
-    )
+    bot_version = "𝐕.3"
+    bot_creator = "@Sasuke286"
+    bot_creation_date = "14/11/24"
+
+    about_text = f"🤖 **𝐀𝐜𝐞𝐫𝐜𝐚 𝐝𝐞𝐥 𝐁𝐨𝐭:**\n\n" \
+                 f" - 📔𝐕𝐞𝐫𝐬𝐢𝐨𝐧: {bot_version}\n" \
+                 f" - 👨‍💻𝐂𝐫𝐞𝐚𝐝𝐨𝐫: {bot_creator}\n" \
+                 f" - 📅𝐅𝐞𝐜𝐡𝐚 𝐝𝐞 𝐃𝐞𝐬𝐚𝐫𝐫𝐨𝐥𝐥𝐨: {bot_creation_date}\n" \
+                 f" - 🔆𝐅𝐮𝐧𝐜𝐢𝐨𝐧𝐞𝐬: 𝐂𝐨𝐧𝐯𝐞𝐫𝐭𝐢𝐫 𝐯𝐢𝐝𝐞𝐨𝐬.\n\n" \
+                 f"¡𝐄𝐬𝐩𝐞𝐫𝐨 𝐭𝐞 𝐠𝐮𝐬𝐭𝐞! 🤗"
+
     await message.reply_text(about_text)
 
-# ===================== INICIALIZACIÓN =====================
-
-def run_telegram_bot():
-    """Función para ejecutar el bot de Telegram"""
-    logger.info("🤖 Iniciando bot de Telegram...")
-    
-    # Verificar credenciales
-    if not all([API_ID, API_HASH, BOT_TOKEN]):
-        logger.error("❌ Faltan credenciales de Telegram")
-        return
-    
-    try:
-        app.run()
-        logger.info("✅ Bot de Telegram iniciado correctamente")
-    except Exception as e:
-        logger.error(f"❌ Error iniciando bot: {e}")
-
-def run_fastapi_server():
-    """Función para ejecutar el servidor FastAPI"""
-    port = int(os.environ.get("PORT", 10000))
-    logger.info(f"🌐 Iniciando servidor web en puerto {port}...")
-    
-    uvicorn.run(
-        web_app,
-        host="0.0.0.0",
-        port=port,
-        log_level="info"
-    )
-
-if __name__ == "__main__":
-    # Crear directorios necesarios
-    os.makedirs("/app/session", exist_ok=True)
-    os.makedirs("/app/downloads", exist_ok=True)
-    os.makedirs("/app/compressed", exist_ok=True)
-    
-    # Iniciar bot en hilo separado
-    bot_thread = threading.Thread(target=run_telegram_bot, daemon=True)
-    bot_thread.start()
-    
-    # Iniciar servidor web (bloqueante)
-    run_fastapi_server()
+app.run()
