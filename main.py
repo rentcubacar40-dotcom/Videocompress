@@ -35,9 +35,9 @@ load_dotenv()
 # ==================== CONFIGURACIÓN ====================
 class Config:
     # Credenciales de la API de Telegram
-    API_ID = int(os.getenv("API_ID", 123456))
-    API_HASH = os.getenv("API_HASH", "tu_api_hash")
-    BOT_TOKEN = os.getenv("BOT_TOKEN", "tu_bot_token")
+    API_ID = int(os.getenv("API_ID", 20534584))
+    API_HASH = os.getenv("API_HASH", "6d5b13261d2c92a9a00afc1fd613b9df")
+    BOT_TOKEN = os.getenv("BOT_TOKEN", "8562042457:AAGA__pfWDMVfdslzqwnoFl4yLrAre-HJ5I")
     
     # Configuración de compresión
     COMPRESSION_SETTINGS = {
