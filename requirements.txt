@@ -1,4 +1,11 @@
+# Dependencias principales - 2026
 pyrogram==2.0.106
 tgcrypto==1.2.5
 aiohttp==3.9.3
+
+# Utilidades
 psutil==5.9.6
+python-dotenv==1.0.0
+
+# Optimización
+uvloop==0.19.0  # Mejor rendimiento asíncrono
